@@ -1,0 +1,78 @@
+{
+  "id": "stone_cold",
+  "name": "스톤콜드",
+  "title": "기암괴석",
+  "faction": "sentinel",
+  "attribute": "strength",
+  "role": ["tank", "siege"],
+  "description": "높은 체력과 물리 피해 감소를 가진 탱커/건물 테러",
+  "stats": {
+    "hp": 900,
+    "mp": 260,
+    "damage": [57, 63],
+    "armor": 2,
+    "moveSpeed": 330,
+    "attackRange": "melee",
+    "attackSpeed": 1.6
+  },
+  "attributes": {
+    "primary": "strength",
+    "strength": { "base": 26, "gain": 3.0 },
+    "agility": { "base": 15, "gain": 1.5 },
+    "intelligence": { "base": 14, "gain": 1.5 }
+  },
+  "skills": [
+    {
+      "id": "rock_throw",
+      "name": "바위 던지기",
+      "hotkey": "T",
+      "description": "800 거리에서 바위를 던져 350 범위 내 적에게 100/200/300 피해 + 1/1.25/1.5초 기절.",
+      "manaCost": [70, 80, 90],
+      "cooldown": 9,
+      "type": "active"
+    },
+    {
+      "id": "rock_hardness",
+      "name": "바위의 단단함",
+      "hotkey": "R",
+      "description": "패시브로 물리 피해 20/30/40 영구 감소. 사용 시 3초간 주변 적의 공격력/공격속도 15%/20%/25% 감소.",
+      "manaCost": [50, 55, 60],
+      "cooldown": 15,
+      "type": "active_passive"
+    },
+    {
+      "id": "wood_club",
+      "name": "나무 몽둥이",
+      "hotkey": "F",
+      "description": "나무 몽둥이 공격 형태로 변신. 공격력 +16, 사거리 200. 4회 공격마다 200/280/360 물리 피해.",
+      "manaCost": 30,
+      "cooldown": 6,
+      "type": "active"
+    },
+    {
+      "id": "rock_rage",
+      "name": "바위 폭주",
+      "hotkey": "W",
+      "description": "20초간 공속 +40%/80%, 이속 +40%/50%, 방어력 +5/10. 주변 적에게 0.25초마다 24/36 피해.",
+      "manaCost": [150, 200],
+      "cooldown": [150, 135],
+      "type": "ultimate"
+    }
+  ],
+  "assets": {
+    "portrait": "characters/sentinels/strength/stone_cold/portrait.png",
+    "sprite": "characters/sentinels/strength/stone_cold/sprite.png",
+    "animations": {
+      "idle": "characters/sentinels/strength/stone_cold/animations/idle.png",
+      "attack": "characters/sentinels/strength/stone_cold/animations/attack.png",
+      "move": "characters/sentinels/strength/stone_cold/animations/move.png",
+      "death": "characters/sentinels/strength/stone_cold/animations/death.png"
+    }
+  },
+  "gameData": {
+    "cost": 5,
+    "unitRole": "tank",
+    "skillType": "defense_aura",
+    "rarity": "epic"
+  }
+}

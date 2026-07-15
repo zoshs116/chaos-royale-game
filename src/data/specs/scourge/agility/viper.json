@@ -1,0 +1,80 @@
+{
+  "id": "viper",
+  "name": "바이퍼",
+  "title": "플라잉 스네이크",
+  "faction": "scourge",
+  "attribute": "agility",
+  "role": ["carry", "nuker"],
+  "description": "독 기반 원거리 딜러, 정찰 및 아바타 카운터",
+  "stats": {
+    "hp": 600,
+    "mp": 375,
+    "damage": [38, 44],
+    "armor": 4,
+    "moveSpeed": 300,
+    "attackRange": 650,
+    "attackSpeed": 1.5
+  },
+  "attributes": {
+    "primary": "agility",
+    "agility": { "base": 22, "gain": 2.5 },
+    "strength": { "base": 18, "gain": 2.5 },
+    "intelligence": { "base": 15, "gain": 1.0 }
+  },
+  "skills": [
+    {
+      "id": "weaken",
+      "name": "약화",
+      "hotkey": "R",
+      "description": "35초간 마법의 기둥 소환, 근처 적 유닛에게 자동으로 약화 시전. 방어력 4/7/10 감소 + 시야 공유.",
+      "manaCost": [70, 80, 90],
+      "cooldown": 12,
+      "type": "active"
+    },
+    {
+      "id": "frenzy",
+      "name": "촉진",
+      "hotkey": "E",
+      "description": "습득시 영구적으로 공속 20%/40%/60% 증가. 사용시 자신이나 아군에게 50초간 공속 40%/50%/60% 증가.",
+      "manaCost": [40, 50, 60],
+      "cooldown": 4,
+      "type": "active_passive"
+    },
+    {
+      "id": "poison_sting",
+      "name": "독침",
+      "hotkey": "D",
+      "description": "매 공격마다 10/20/30/40 추가 피해 + 6초간 초당 7/14/21/(21+현재 체력 3%) 독 피해 + 이속 감소.",
+      "type": "orb"
+    },
+    {
+      "id": "venom_strike",
+      "name": "맹독",
+      "hotkey": "W",
+      "description": "대상에게 즉시 500/900 피해 + 1.5/2초 기절 + 독 피해. 건물 및 기계에 사용 가능.",
+      "manaCost": [150, 200],
+      "cooldown": [135, 120],
+      "type": "ultimate"
+    }
+  ],
+  "assets": {
+    "portrait": "characters/scourge/agility/viper/portrait.png",
+    "sprite": "characters/scourge/agility/viper/sprite.png",
+    "animations": {
+      "idle": "characters/scourge/agility/viper/animations/idle.png",
+      "attack": "characters/scourge/agility/viper/animations/attack.png",
+      "move": "characters/scourge/agility/viper/animations/move.png",
+      "death": "characters/scourge/agility/viper/animations/death.png"
+    },
+    "effects": {
+      "projectile": "effects/projectiles/poison.png",
+      "impact": "effects/impacts/poison_impact.png"
+    }
+  },
+  "gameData": {
+    "cost": 3,
+    "unitRole": "assassin",
+    "skillType": "poison_dot",
+    "rarity": "rare"
+  }
+}

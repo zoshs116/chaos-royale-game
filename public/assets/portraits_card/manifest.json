@@ -1,0 +1,847 @@
+[
+  {
+    "key": "adas",
+    "source": "adas.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 94021
+  },
+  {
+    "key": "agamemnon",
+    "source": "agamemnon.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 87680
+  },
+  {
+    "key": "agni",
+    "source": "agni.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 89601
+  },
+  {
+    "key": "akasha",
+    "source": "akasha.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 74884
+  },
+  {
+    "key": "akiro",
+    "source": "akiro.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 88323
+  },
+  {
+    "key": "alien",
+    "source": "alien.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 67531
+  },
+  {
+    "key": "azgaro",
+    "source": "azgaro.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 89749
+  },
+  {
+    "key": "berserker",
+    "source": "berserker.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 80686
+  },
+  {
+    "key": "blood_imp",
+    "source": "blood_imp.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 94437
+  },
+  {
+    "key": "broken_count",
+    "source": "broken_count.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 69260
+  },
+  {
+    "key": "chan",
+    "source": "chan.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 90029
+  },
+  {
+    "key": "chen",
+    "source": "chen.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 90029
+  },
+  {
+    "key": "darae",
+    "source": "darae.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 88599
+  },
+  {
+    "key": "drukker",
+    "source": "drukker.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 95824
+  },
+  {
+    "key": "dudu",
+    "source": "dudu.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 89344
+  },
+  {
+    "key": "eldin",
+    "source": "eldin.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 91454
+  },
+  {
+    "key": "ferda",
+    "source": "ferda.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 103619
+  },
+  {
+    "key": "froad",
+    "source": "froad.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 78966
+  },
+  {
+    "key": "furion",
+    "source": "furion.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 95346
+  },
+  {
+    "key": "galitos",
+    "source": "galitos.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 90790
+  },
+  {
+    "key": "garae",
+    "source": "garae.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 82486
+  },
+  {
+    "key": "grime",
+    "source": "grime.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 83700
+  },
+  {
+    "key": "grommash",
+    "source": "grommash.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 81123
+  },
+  {
+    "key": "gruul",
+    "source": "gruul.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 103138
+  },
+  {
+    "key": "gyros",
+    "source": "gyros.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 79472
+  },
+  {
+    "key": "illidan",
+    "source": "illidan.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 88254
+  },
+  {
+    "key": "irea",
+    "source": "irea.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 85677
+  },
+  {
+    "key": "kanzel",
+    "source": "kanzel.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 103289
+  },
+  {
+    "key": "karen_hoof",
+    "source": "karen_hoof.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 102298
+  },
+  {
+    "key": "kartus",
+    "source": "kartus.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 88211
+  },
+  {
+    "key": "kelzad",
+    "source": "kelzad.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 93230
+  },
+  {
+    "key": "lady_death",
+    "source": "lady_death.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 90246
+  },
+  {
+    "key": "leonik",
+    "source": "leonik.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 80446
+  },
+  {
+    "key": "lokan",
+    "source": "lokan.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 98143
+  },
+  {
+    "key": "lucifer",
+    "source": "lucifer.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 95558
+  },
+  {
+    "key": "magenda",
+    "source": "magenda.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 74877
+  },
+  {
+    "key": "maiev",
+    "source": "maiev.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 93878
+  },
+  {
+    "key": "medusa",
+    "source": "medusa.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 95581
+  },
+  {
+    "key": "melshid",
+    "source": "melshid.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 73672
+  },
+  {
+    "key": "mermadun",
+    "source": "mermadun.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 92746
+  },
+  {
+    "key": "muradin",
+    "source": "muradin.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 96295
+  },
+  {
+    "key": "mutant",
+    "source": "mutant.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 84823
+  },
+  {
+    "key": "naisha",
+    "source": "naisha.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 79773
+  },
+  {
+    "key": "nazgrel",
+    "source": "nazgrel.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 95829
+  },
+  {
+    "key": "nipi",
+    "source": "nipi.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 90008
+  },
+  {
+    "key": "nivas",
+    "source": "nivas.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 91535
+  },
+  {
+    "key": "obli",
+    "source": "obli.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 94674
+  },
+  {
+    "key": "rafford",
+    "source": "rafford.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 79823
+  },
+  {
+    "key": "raiden",
+    "source": "raiden.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 56719
+  },
+  {
+    "key": "reina",
+    "source": "reina.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 91880
+  },
+  {
+    "key": "rikian",
+    "source": "rikian.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 91206
+  },
+  {
+    "key": "setiar",
+    "source": "setiar.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 108012
+  },
+  {
+    "key": "shakajan",
+    "source": "shakajan.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 94378
+  },
+  {
+    "key": "silk",
+    "source": "silk.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 73002
+  },
+  {
+    "key": "solvenhim",
+    "source": "solvenhim.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 88144
+  },
+  {
+    "key": "sparrow",
+    "source": "sparrow.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 63064
+  },
+  {
+    "key": "stone_cold",
+    "source": "stone_cold.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 106250
+  },
+  {
+    "key": "sylvanas",
+    "source": "sylvanas.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 91858
+  },
+  {
+    "key": "talon",
+    "source": "talon.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 92289
+  },
+  {
+    "key": "troublemaker",
+    "source": "troublemaker.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 102327
+  },
+  {
+    "key": "tyrande",
+    "source": "tyrande.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 99414
+  },
+  {
+    "key": "venazar",
+    "source": "venazar.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 88807
+  },
+  {
+    "key": "viper",
+    "source": "viper.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 89490
+  },
+  {
+    "key": "zerdin",
+    "source": "zerdin.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 81073
+  },
+  {
+    "key": "zodiac",
+    "source": "zodiac.png",
+    "sourceSize": [
+      192,
+      192
+    ],
+    "outputSize": [
+      256,
+      256
+    ],
+    "bytes": 99217
+  }
+]

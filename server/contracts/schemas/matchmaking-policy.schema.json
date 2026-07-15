@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chaos-royale.example/schemas/matchmaking-policy.schema.json",
+  "title": "MatchmakingPolicy",
+  "type": "object",
+  "required": [
+    "maxAllowedPingMs",
+    "queuePolicies",
+    "regionFallbackPriority"
+  ],
+  "properties": {
+    "maxAllowedPingMs": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "queuePolicies": {
+      "type": "object",
+      "required": ["ladder_1v1", "custom_1v1", "party_2v2"],
+      "properties": {
+        "ladder_1v1": {
+          "$ref": "#/$defs/queuePolicy"
+        },
+        "custom_1v1": {
+          "$ref": "#/$defs/queuePolicy"
+        },
+        "party_2v2": {
+          "$ref": "#/$defs/queuePolicy"
+        }
+      },
+      "additionalProperties": false
+    },
+    "regionFallbackPriority": {
+      "type": "object",
+      "required": ["ap-northeast", "ap-southeast", "us-west", "us-east", "eu-central"],
+      "properties": {
+        "ap-northeast": {
+          "$ref": "#/$defs/regionList"
+        },
+        "ap-southeast": {
+          "$ref": "#/$defs/regionList"
+        },
+        "us-west": {
+          "$ref": "#/$defs/regionList"
+        },
+        "us-east": {
+          "$ref": "#/$defs/regionList"
+        },
+        "eu-central": {
+          "$ref": "#/$defs/regionList"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "queuePolicy": {
+      "type": "object",
+      "required": [
+        "playersPerRoom",
+        "estimatedWaitSec",
+        "mmrExpansionRules",
+        "regionExpansionRules"
+      ],
+      "properties": {
+        "playersPerRoom": {
+          "type": "integer",
+          "enum": [2, 4]
+        },
+        "estimatedWaitSec": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mmrExpansionRules": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["afterSec", "delta"],
+            "properties": {
+              "afterSec": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "delta": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "regionExpansionRules": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["afterSec", "widenToCount"],
+            "properties": {
+              "afterSec": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "widenToCount": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "regionList": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "type": "string",
+        "enum": ["ap-northeast", "ap-southeast", "us-west", "us-east", "eu-central"]
+      }
+    }
+  },
+  "additionalProperties": false
+}

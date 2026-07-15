@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chaos-royale.example/schemas/match-summary.schema.json",
+  "title": "MatchSummary",
+  "type": "object",
+  "required": [
+    "matchId",
+    "queueType",
+    "startedAtUtc",
+    "endedAtUtc",
+    "durationSec",
+    "winnerTeamId",
+    "teams",
+    "initialStateHash",
+    "rngSeed",
+    "inputCount",
+    "eventsDigestSha256",
+    "replayKey",
+    "serverBuild",
+    "resultVersion",
+    "acceptedAtUtc",
+    "mmrUpdates"
+  ],
+  "properties": {
+    "matchId": {
+      "type": "string",
+      "pattern": "^m_[a-zA-Z0-9_-]{8,}$"
+    },
+    "queueType": {
+      "type": "string",
+      "enum": ["ladder_1v1", "custom_1v1", "party_2v2"]
+    },
+    "startedAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "endedAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "durationSec": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "winnerTeamId": {
+      "type": "string",
+      "enum": ["blue", "red", "draw"]
+    },
+    "teams": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["teamId", "playerIds", "crowns", "kingTowerHp"],
+        "properties": {
+          "teamId": {
+            "type": "string",
+            "enum": ["blue", "red"]
+          },
+          "playerIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 2,
+            "items": {
+              "type": "string"
+            }
+          },
+          "crowns": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3
+          },
+          "kingTowerHp": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "initialStateHash": {
+      "type": "string"
+    },
+    "rngSeed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "inputCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "eventsDigestSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "replayKey": {
+      "type": "string"
+    },
+    "serverBuild": {
+      "type": "string"
+    },
+    "resultVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "acceptedAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "mmrUpdates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["playerId", "before", "after", "delta"],
+        "properties": {
+          "playerId": {
+            "type": "string"
+          },
+          "before": {
+            "type": "integer"
+          },
+          "after": {
+            "type": "integer"
+          },
+          "delta": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

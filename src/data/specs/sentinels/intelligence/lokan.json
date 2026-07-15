@@ -1,0 +1,82 @@
+{
+  "id": "lokan",
+  "name": "로칸",
+  "title": "쉐도우 헌터",
+  "faction": "sentinel",
+  "attribute": "intelligence",
+  "role": ["support", "nuker"],
+  "description": "물 기반 서포터/누커, 힐러",
+  "stats": {
+    "hp": 575,
+    "mp": 485,
+    "damage": [35, 41],
+    "armor": 2,
+    "moveSpeed": 300,
+    "attackRange": 700,
+    "attackSpeed": 1.8
+  },
+  "attributes": {
+    "primary": "intelligence",
+    "intelligence": { "base": 19, "gain": 3.0 },
+    "strength": { "base": 19, "gain": 2.0 },
+    "agility": { "base": 17, "gain": 1.0 }
+  },
+  "skills": [
+    {
+      "id": "water_magnum",
+      "name": "워터 매그넘",
+      "hotkey": "C",
+      "description": "최대 2/3/4명에게 튕기는 마법 물총, 180/290/400 피해.",
+      "manaCost": [100, 115, 130],
+      "cooldown": 9,
+      "type": "active"
+    },
+    {
+      "id": "haste",
+      "name": "헤이스트",
+      "hotkey": "E",
+      "description": "60초간 공속 +40%/70%/100%, 이속 +20%/30%/40%. 매 공격마다 적 현재 체력 2% 추가 피해.",
+      "manaCost": [60, 70, 80],
+      "cooldown": 45,
+      "type": "active"
+    },
+    {
+      "id": "ward",
+      "name": "로칸 워드",
+      "hotkey": "T",
+      "description": "즉시 아군 영웅 체력 100/150/200 회복 + 12초간 550 범위 내 아군 방어력 +2/3/4, 초당 최대 체력 1%/2%/3% 회복.",
+      "manaCost": [100, 125, 150],
+      "cooldown": 28,
+      "type": "active"
+    },
+    {
+      "id": "poseidon_wrath",
+      "name": "포세이돈의 분노",
+      "hotkey": "W",
+      "description": "포세이돈의 분노 워드 8/12/16기 소환. 워드: 체력 600/725/850, 공격력 55(관통→영웅).",
+      "manaCost": [150, 200, 250],
+      "cooldown": 165,
+      "type": "ultimate"
+    }
+  ],
+  "assets": {
+    "portrait": "characters/sentinels/intelligence/lokan/portrait.png",
+    "sprite": "characters/sentinels/intelligence/lokan/sprite.png",
+    "animations": {
+      "idle": "characters/sentinels/intelligence/lokan/animations/idle.png",
+      "attack": "characters/sentinels/intelligence/lokan/animations/attack.png",
+      "move": "characters/sentinels/intelligence/lokan/animations/move.png",
+      "death": "characters/sentinels/intelligence/lokan/animations/death.png"
+    },
+    "effects": {
+      "projectile": "effects/projectiles/water.png",
+      "impact": "effects/impacts/water_impact.png"
+    }
+  },
+  "gameData": {
+    "cost": 3,
+    "unitRole": "support",
+    "skillType": "none",
+    "rarity": "rare"
+  }
+}

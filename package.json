@@ -1,0 +1,36 @@
+{
+  "name": "chaos-royale",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:local": "vite --host 127.0.0.1 --port 5222 --strictPort",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "preview:local": "vite preview --host 127.0.0.1 --port 5222 --strictPort",
+    "generate:ui-atlas": "node scripts/generate-ui-atlas.mjs",
+    "normalize:tower-rubble": "node scripts/normalize-tower-rubble.mjs",
+    "typecheck:server": "tsc --noEmit -p server/tsconfig.json",
+    "worker:matchmaking": "tsx server/workers/matchmaking-tick-worker.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/pg": "^8.18.0",
+    "jimp": "^1.6.0",
+    "tsx": "^4.20.5",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.1"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.110.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "pg": "^8.16.3",
+    "phaser": "^3.90.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.1.7"
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chaos-royale.example/schemas/match-lifecycle.schema.json",
+  "title": "MatchLifecycleRecord",
+  "type": "object",
+  "required": [
+    "matchId",
+    "state",
+    "queueType",
+    "region",
+    "createdAtUtc",
+    "updatedAtUtc",
+    "revision"
+  ],
+  "properties": {
+    "matchId": {
+      "type": "string",
+      "pattern": "^m_[a-zA-Z0-9_-]{8,}$"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "created",
+        "queued",
+        "provisioning",
+        "running",
+        "finishing",
+        "archived",
+        "failed"
+      ]
+    },
+    "queueType": {
+      "type": "string",
+      "enum": ["ladder_1v1", "custom_1v1", "party_2v2"]
+    },
+    "region": {
+      "type": "string"
+    },
+    "createdAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "errorCode": {
+      "type": "string"
+    },
+    "players": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 4,
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

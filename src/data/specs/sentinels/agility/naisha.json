@@ -1,0 +1,79 @@
+{
+  "id": "naisha",
+  "name": "나이샤",
+  "title": "블루 헌트리스",
+  "faction": "sentinel",
+  "attribute": "agility",
+  "role": ["support", "disabler"],
+  "description": "최고의 라인 견제 및 팀 서포터 (석화 + 무적)",
+  "stats": {
+    "hp": 625,
+    "mp": 350,
+    "damage": [46, 52],
+    "armor": 4,
+    "moveSpeed": 310,
+    "attackRange": 350,
+    "attackSpeed": 1.5
+  },
+  "attributes": {
+    "primary": "agility",
+    "agility": { "base": 22, "gain": 2.5 },
+    "strength": { "base": 18, "gain": 2.0 },
+    "intelligence": { "base": 15, "gain": 1.5 }
+  },
+  "skills": [
+    {
+      "id": "petrify",
+      "name": "석화",
+      "hotkey": "X",
+      "description": "적을 2/3/4초간 돌로 만들고 100/175/250 피해. 흡안 불가능. 디스펠로 해제 가능.",
+      "manaCost": [80, 100, 120],
+      "cooldown": [25, 22, 19],
+      "type": "active"
+    },
+    {
+      "id": "moon_javelin",
+      "name": "달의 표창",
+      "hotkey": "C",
+      "description": "블랙/블루 헌트리스 전환. 블랙: 표창 1/2/3회 튕김 (공격력 35% 감소). 블루: 사거리 50/100/150 증가.",
+      "type": "toggle"
+    },
+    {
+      "id": "mastered_javelin",
+      "name": "숙련된 표창",
+      "hotkey": "passive",
+      "description": "민첩 4/7/10 증가, 5%/10%/15% 확률 회피.",
+      "type": "passive"
+    },
+    {
+      "id": "light_of_courage",
+      "name": "용기의 빛",
+      "hotkey": "W",
+      "description": "800 범위 내 아군 5초간 무적. 채널링 유닛 제외.",
+      "manaCost": 150,
+      "cooldown": 165,
+      "type": "ultimate"
+    }
+  ],
+  "assets": {
+    "portrait": "characters/sentinels/agility/naisha/portrait.png",
+    "sprite": "characters/sentinels/agility/naisha/sprite.png",
+    "animations": {
+      "idle": "characters/sentinels/agility/naisha/animations/idle.png",
+      "attack": "characters/sentinels/agility/naisha/animations/attack.png",
+      "move": "characters/sentinels/agility/naisha/animations/move.png",
+      "death": "characters/sentinels/agility/naisha/animations/death.png"
+    },
+    "effects": {
+      "projectile": "effects/projectiles/javelin.png",
+      "impact": "effects/impacts/javelin_impact.png",
+      "petrify": "effects/auras/petrify.png"
+    }
+  },
+  "gameData": {
+    "cost": 4,
+    "unitRole": "support",
+    "skillType": "petrify",
+    "rarity": "epic"
+  }
+}

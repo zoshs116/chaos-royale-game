@@ -1,0 +1,79 @@
+{
+  "id": "darae",
+  "name": "다래",
+  "title": "전설의 명사수",
+  "faction": "sentinel",
+  "attribute": "agility",
+  "role": ["carry", "attack_speed"],
+  "description": "폭발적인 공격 속도 기반 딜러",
+  "stats": {
+    "hp": 600,
+    "mp": 340,
+    "damage": [39, 45],
+    "armor": 4,
+    "moveSpeed": 300,
+    "attackRange": 610,
+    "attackSpeed": 1.5
+  },
+  "attributes": {
+    "primary": "agility",
+    "agility": { "base": 23, "gain": 2.5 },
+    "strength": { "base": 18, "gain": 2.5 },
+    "intelligence": { "base": 14, "gain": 1.0 }
+  },
+  "skills": [
+    {
+      "id": "wind_walk",
+      "name": "바람의 발걸음",
+      "hotkey": "W",
+      "description": "20/40/60초간 투명, 이속 10%/40%/70% 증가. 공격 시 100/190/280 추가 피해.",
+      "manaCost": [70, 80, 90],
+      "cooldown": 5.5,
+      "type": "active"
+    },
+    {
+      "id": "fire_arrow",
+      "name": "화염 화살",
+      "hotkey": "R",
+      "description": "매 공격마다 20/35/50/65 화염 피해 추가. 오브 기반.",
+      "manaCost": [2, 3, 4, 4],
+      "type": "orb"
+    },
+    {
+      "id": "mastered_bow",
+      "name": "숙련된 활기술",
+      "hotkey": "passive",
+      "description": "공격력 10%/20%/30%, 사거리 30/60/90 증가.",
+      "type": "passive"
+    },
+    {
+      "id": "rapid_fire",
+      "name": "속사",
+      "hotkey": "F",
+      "description": "12초간 공속 200% 증가, 매 공격마다 최대 체력 1%/2% 마법 피해.",
+      "manaCost": [100, 120],
+      "cooldown": 60,
+      "type": "ultimate"
+    }
+  ],
+  "assets": {
+    "portrait": "characters/sentinels/agility/darae/portrait.png",
+    "sprite": "characters/sentinels/agility/darae/sprite.png",
+    "animations": {
+      "idle": "characters/sentinels/agility/darae/animations/idle.png",
+      "attack": "characters/sentinels/agility/darae/animations/attack.png",
+      "move": "characters/sentinels/agility/darae/animations/move.png",
+      "death": "characters/sentinels/agility/darae/animations/death.png"
+    },
+    "effects": {
+      "projectile": "effects/projectiles/fire_arrow.png",
+      "impact": "effects/impacts/fire_impact.png"
+    }
+  },
+  "gameData": {
+    "cost": 3,
+    "unitRole": "assassin",
+    "skillType": "none",
+    "rarity": "rare"
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "id": "agni",
+  "name": "아그니",
+  "title": "파이어 로드",
+  "faction": "scourge",
+  "attribute": "agility",
+  "role": ["summoner", "nuker"],
+  "description": "화염 기반 소환형 민첩 딜러, 라바 스폰으로 크리핑 및 한타 지원",
+  "stats": {
+    "hp": 600,
+    "mp": 330,
+    "damage": [41, 47],
+    "armor": 4,
+    "moveSpeed": 300,
+    "attackRange": 625,
+    "attackSpeed": 1.4
+  },
+  "attributes": {
+    "primary": "agility",
+    "agility": { "base": 25, "gain": 2.5 },
+    "strength": { "base": 18, "gain": 2.0 },
+    "intelligence": { "base": 12, "gain": 1.5 }
+  },
+  "skills": [
+    {
+      "id": "soul_burn",
+      "name": "소울 번",
+      "hotkey": "B",
+      "description": "적 유닛에게 즉시 60/120/180 피해 + 5/6/7초간 초당 10/20/30 도트 피해. 공격력/이속 감소 + 사일런스.",
+      "manaCost": 80,
+      "cooldown": [10, 9, 8],
+      "type": "active"
+    },
+    {
+      "id": "lava_spawn",
+      "name": "라바 스폰",
+      "hotkey": "R",
+      "description": "라바 스폰 1기 소환. 7번 공격시 3초후 2마리로 분할. 최대 3번 분할 가능.",
+      "manaCost": [75, 90, 105],
+      "cooldown": 10,
+      "type": "active"
+    },
+    {
+      "id": "incinerate",
+      "name": "인시너레이트",
+      "hotkey": "C",
+      "description": "매 공격마다 적에게 20/25/30 × 누적 공격 횟수만큼 피해. 사망 시 주변 적에게 피해.",
+      "type": "orb"
+    },
+    {
+      "id": "volcano",
+      "name": "화산 분출",
+      "hotkey": "W",
+      "description": "15초간 화산 분출, 1.35초마다 450 범위 내 적에게 350/450 피해 + 0.8/1초 기절.",
+      "manaCost": [150, 200],
+      "cooldown": 165,
+      "type": "ultimate"
+    }
+  ],
+  "assets": {
+    "portrait": "characters/scourge/agility/agni/portrait.png",
+    "sprite": "characters/scourge/agility/agni/sprite.png",
+    "animations": {
+      "idle": "characters/scourge/agility/agni/animations/idle.png",
+      "attack": "characters/scourge/agility/agni/animations/attack.png",
+      "move": "characters/scourge/agility/agni/animations/move.png",
+      "death": "characters/scourge/agility/agni/animations/death.png"
+    },
+    "effects": {
+      "projectile": "effects/projectiles/fireball.png",
+      "impact": "effects/impacts/fire_impact.png"
+    }
+  },
+  "gameData": {
+    "cost": 4,
+    "unitRole": "mage",
+    "skillType": "fire_zone",
+    "rarity": "epic",
+    "isHidden": true
+  }
+}

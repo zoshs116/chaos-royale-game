@@ -1,0 +1,847 @@
+[
+  {
+    "key": "adas",
+    "source": "adas.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 63175
+  },
+  {
+    "key": "agamemnon",
+    "source": "agamemnon.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 59952
+  },
+  {
+    "key": "agni",
+    "source": "agni.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 61475
+  },
+  {
+    "key": "akasha",
+    "source": "akasha.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 49365
+  },
+  {
+    "key": "akiro",
+    "source": "akiro.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 57394
+  },
+  {
+    "key": "alien",
+    "source": "alien.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 45762
+  },
+  {
+    "key": "azgaro",
+    "source": "azgaro.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 62280
+  },
+  {
+    "key": "berserker",
+    "source": "berserker.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 47692
+  },
+  {
+    "key": "blood_imp",
+    "source": "blood_imp.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 62345
+  },
+  {
+    "key": "broken_count",
+    "source": "broken_count.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 40286
+  },
+  {
+    "key": "chen",
+    "source": "chen.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 61470
+  },
+  {
+    "key": "chan",
+    "source": "chen.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 61470
+  },
+  {
+    "key": "darae",
+    "source": "darae.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 57980
+  },
+  {
+    "key": "drukker",
+    "source": "drukker.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 64039
+  },
+  {
+    "key": "dudu",
+    "source": "dudu.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 59702
+  },
+  {
+    "key": "eldin",
+    "source": "eldin.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 60855
+  },
+  {
+    "key": "ferda",
+    "source": "ferda.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 67553
+  },
+  {
+    "key": "froad",
+    "source": "froad.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 53574
+  },
+  {
+    "key": "furion",
+    "source": "furion.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 63589
+  },
+  {
+    "key": "galitos",
+    "source": "galitos.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 58101
+  },
+  {
+    "key": "garae",
+    "source": "garae.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 55806
+  },
+  {
+    "key": "grime",
+    "source": "grime.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 53980
+  },
+  {
+    "key": "grommash",
+    "source": "grommash.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 51706
+  },
+  {
+    "key": "gruul",
+    "source": "gruul.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 69656
+  },
+  {
+    "key": "gyros",
+    "source": "gyros.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 57741
+  },
+  {
+    "key": "illidan",
+    "source": "illidan.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 60201
+  },
+  {
+    "key": "irea",
+    "source": "irea.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 58244
+  },
+  {
+    "key": "kanzel",
+    "source": "kanzel.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 70082
+  },
+  {
+    "key": "karen_hoof",
+    "source": "karen_hoof.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 68977
+  },
+  {
+    "key": "kartus",
+    "source": "kartus.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 57028
+  },
+  {
+    "key": "kelzad",
+    "source": "kelzad.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 64378
+  },
+  {
+    "key": "lady_death",
+    "source": "lady_death.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 65638
+  },
+  {
+    "key": "leonik",
+    "source": "leonik.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 51073
+  },
+  {
+    "key": "lokan",
+    "source": "lokan.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 69308
+  },
+  {
+    "key": "lucifer",
+    "source": "lucifer.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 62997
+  },
+  {
+    "key": "magenda",
+    "source": "magenda.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 51708
+  },
+  {
+    "key": "maiev",
+    "source": "Maiev.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 61004
+  },
+  {
+    "key": "medusa",
+    "source": "medusa.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 65557
+  },
+  {
+    "key": "melshid",
+    "source": "melshid.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 52521
+  },
+  {
+    "key": "mermadun",
+    "source": "mermadun.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 62580
+  },
+  {
+    "key": "muradin",
+    "source": "muradin.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 64851
+  },
+  {
+    "key": "mutant",
+    "source": "mutant.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 56993
+  },
+  {
+    "key": "naisha",
+    "source": "naisha.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 56268
+  },
+  {
+    "key": "nazgrel",
+    "source": "nazgrel.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 60898
+  },
+  {
+    "key": "nipi",
+    "source": "nipi.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 61277
+  },
+  {
+    "key": "nivas",
+    "source": "nivas.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 60733
+  },
+  {
+    "key": "obli",
+    "source": "obli.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 67553
+  },
+  {
+    "key": "rafford",
+    "source": "rafford.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 53324
+  },
+  {
+    "key": "raiden",
+    "source": "raiden.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 40226
+  },
+  {
+    "key": "reina",
+    "source": "reina.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 63243
+  },
+  {
+    "key": "rikian",
+    "source": "rikian.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 62848
+  },
+  {
+    "key": "setiar",
+    "source": "setiar.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 71043
+  },
+  {
+    "key": "shakajan",
+    "source": "shakajan.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 63953
+  },
+  {
+    "key": "silk",
+    "source": "silk.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 47339
+  },
+  {
+    "key": "solvenhim",
+    "source": "solvenhim.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 59011
+  },
+  {
+    "key": "sparrow",
+    "source": "sparrow.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 45812
+  },
+  {
+    "key": "stone_cold",
+    "source": "stone_cold.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 68617
+  },
+  {
+    "key": "sylvanas",
+    "source": "sylvanas.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 63148
+  },
+  {
+    "key": "talon",
+    "source": "talon.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 57096
+  },
+  {
+    "key": "troublemaker",
+    "source": "troublemaker.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 66294
+  },
+  {
+    "key": "tyrande",
+    "source": "tyrande.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 68529
+  },
+  {
+    "key": "venazar",
+    "source": "venazar.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 63540
+  },
+  {
+    "key": "viper",
+    "source": "viper.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 54493
+  },
+  {
+    "key": "zerdin",
+    "source": "zerdin.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 55525
+  },
+  {
+    "key": "zodiac",
+    "source": "zodiac.webp",
+    "sourceSize": [
+      64,
+      64
+    ],
+    "outputSize": [
+      192,
+      192
+    ],
+    "bytes": 67235
+  }
+]

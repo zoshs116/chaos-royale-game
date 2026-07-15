@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "scale": 3,
+  "generatedBy": "scripts/generate-ui-atlas.mjs",
+  "nineslice": {
+    "button": {
+      "left": 34,
+      "right": 34,
+      "top": 18,
+      "bottom": 18
+    },
+    "panel": {
+      "left": 44,
+      "right": 44,
+      "top": 44,
+      "bottom": 44
+    },
+    "header": {
+      "left": 32,
+      "right": 32,
+      "top": 24,
+      "bottom": 24
+    },
+    "currencyPill": {
+      "left": 32,
+      "right": 32,
+      "top": 24,
+      "bottom": 24
+    },
+    "navBar": {
+      "left": 60,
+      "right": 60,
+      "top": 32,
+      "bottom": 32
+    },
+    "navActive": {
+      "left": 22,
+      "right": 22,
+      "top": 22,
+      "bottom": 22
+    },
+    "slot": {
+      "left": 26,
+      "right": 26,
+      "top": 26,
+      "bottom": 26
+    },
+    "toast": {
+      "left": 36,
+      "right": 36,
+      "top": 28,
+      "bottom": 28
+    },
+    "card": {
+      "left": 22,
+      "right": 22,
+      "top": 24,
+      "bottom": 24
+    }
+  },
+  "assets": [
+    "ui_asset_button_primary",
+    "ui_asset_button_primary_pressed",
+    "ui_asset_button_gold",
+    "ui_asset_button_gold_pressed",
+    "ui_asset_button_green",
+    "ui_asset_button_green_pressed",
+    "ui_asset_button_dark",
+    "ui_asset_button_dark_pressed",
+    "ui_asset_button_purple",
+    "ui_asset_button_purple_pressed",
+    "ui_asset_panel_dark",
+    "ui_asset_header_bar",
+    "ui_asset_currency_pill",
+    "ui_asset_nav_bar",
+    "ui_asset_nav_active",
+    "ui_asset_slot_empty",
+    "ui_asset_slot_locked",
+    "ui_asset_toast_panel",
+    "ui_asset_card_blue",
+    "ui_asset_card_green",
+    "ui_asset_card_red",
+    "ui_asset_card_purple",
+    "ui_asset_card_gold"
+  ]
+}

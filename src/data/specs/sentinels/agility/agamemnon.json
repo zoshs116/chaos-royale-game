@@ -1,0 +1,80 @@
+{
+  "id": "agamemnon",
+  "name": "아가멤논",
+  "title": "썬더러",
+  "faction": "sentinel",
+  "attribute": "agility",
+  "role": ["nuker", "melee"],
+  "description": "번개 기반 근접 딜러, 드레인 + 한타 누커",
+  "stats": {
+    "hp": 650,
+    "mp": 340,
+    "damage": [52, 58],
+    "armor": 3,
+    "moveSpeed": 330,
+    "attackRange": 140,
+    "attackSpeed": 1.5
+  },
+  "attributes": {
+    "primary": "agility",
+    "agility": { "base": 21, "gain": 2.5 },
+    "strength": { "base": 18, "gain": 2.5 },
+    "intelligence": { "base": 16, "gain": 1.0 }
+  },
+  "skills": [
+    {
+      "id": "lightning_orb",
+      "name": "번개의 구슬",
+      "hotkey": "T",
+      "description": "직선으로 이동했다가 되돌아오는 번개 구슬 소환. 주변 적에게 0.04초마다 8/10/12/14 피해.",
+      "manaCost": [60, 70, 80, 90],
+      "cooldown": 9,
+      "type": "active"
+    },
+    {
+      "id": "lightning_mastery",
+      "name": "번개술",
+      "hotkey": "F",
+      "description": "수호의 번개: 10%/15%/20% 확률로 120/150/180 번개 피해 또는 물리 피해 무효화. 심판의 번개: 10%/15%/20% 확률로 120/150/180 번개 피해.",
+      "type": "passive"
+    },
+    {
+      "id": "light_grace",
+      "name": "빛의 은총",
+      "hotkey": "E",
+      "description": "1초간 이동 속도 45%/55%/65% 감소, 체력/마력 150/250/350 흡수. 모두 흡수 시 5초간 퍼지.",
+      "manaCost": [60, 75, 90],
+      "cooldown": 15,
+      "type": "active"
+    },
+    {
+      "id": "sky_fury",
+      "name": "하늘의 분노",
+      "hotkey": "W",
+      "description": "6초간 0.7초마다 번개로 적에게 220/330 피해. 최대 16회 공격.",
+      "manaCost": [150, 200],
+      "cooldown": [150, 135],
+      "type": "ultimate"
+    }
+  ],
+  "assets": {
+    "portrait": "characters/sentinels/agility/agamemnon/portrait.png",
+    "sprite": "characters/sentinels/agility/agamemnon/sprite.png",
+    "animations": {
+      "idle": "characters/sentinels/agility/agamemnon/animations/idle.png",
+      "attack": "characters/sentinels/agility/agamemnon/animations/attack.png",
+      "move": "characters/sentinels/agility/agamemnon/animations/move.png",
+      "death": "characters/sentinels/agility/agamemnon/animations/death.png"
+    },
+    "effects": {
+      "projectile": "effects/projectiles/lightning_orb.png",
+      "impact": "effects/impacts/lightning_impact.png"
+    }
+  },
+  "gameData": {
+    "cost": 4,
+    "unitRole": "assassin",
+    "skillType": "fire_zone",
+    "rarity": "rare"
+  }
+}

@@ -1,0 +1,55 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+tmp
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.vercel
+
+# Local environment and generated output
+.env
+.env.*
+!.env.example
+artifacts/
+assets_src/
+public/assets_src/
+public/assets_processed/
+reference/
+research/
+tmp-ui-review/
+.codex-tools/
+vite-*.log
+
+# Local machine launchers
+run-dev-5222.cmd
+run-preview-5222.cmd
+
+# Project notes and one-off tooling not required by the game
+AGENTS.md
+TODO.md
+progress.md
+package-lock.json
+docs/*
+!docs/supabase-schema.sql
+scripts/*
+!scripts/generate-ui-atlas.mjs
+!scripts/normalize-tower-rubble.mjs

@@ -1,0 +1,78 @@
+{
+  "id": "garae",
+  "name": "가래",
+  "title": "미사일 슈터",
+  "faction": "sentinel",
+  "attribute": "agility",
+  "role": ["nuker", "carry"],
+  "description": "집중형 원거리 누커 및 물리 딜러",
+  "stats": {
+    "hp": 575,
+    "mp": 375,
+    "damage": [39, 45],
+    "armor": 4,
+    "moveSpeed": 300,
+    "attackRange": 650,
+    "attackSpeed": 1.5
+  },
+  "attributes": {
+    "primary": "agility",
+    "agility": { "base": 23, "gain": 3.0 },
+    "strength": { "base": 17, "gain": 2.0 },
+    "intelligence": { "base": 15, "gain": 1.0 }
+  },
+  "skills": [
+    {
+      "id": "guided_arrow",
+      "name": "유도 화살",
+      "hotkey": "E",
+      "description": "12초 지속 공격력 28 유도 화살 1/2/3발 소환. 가래가 마지막으로 공격한 대상 추적. 마법 면역 무시.",
+      "manaCost": [80, 95, 110],
+      "cooldown": 10,
+      "type": "active"
+    },
+    {
+      "id": "multi_shot",
+      "name": "다중 화살",
+      "hotkey": "passive",
+      "description": "추가 2/3/4개 화살로 최대 3/4/5명에게 동일 피해. 공중유닛/건물에는 발동 안됨.",
+      "type": "passive"
+    },
+    {
+      "id": "mastered_fire",
+      "name": "숙련된 발사",
+      "hotkey": "passive",
+      "description": "공격력 5/10/15 증가, 700 범위 내 원거리 아군 공격력 10%/20%/30% 증가.",
+      "type": "passive"
+    },
+    {
+      "id": "arrow_bomb",
+      "name": "화살 폭탄",
+      "hotkey": "W",
+      "description": "300/400 + 레벨×50 피해, 2초 기절. 주변 200 범위 방사 피해. 마법 면역 무시.",
+      "manaCost": 150,
+      "cooldown": [150, 135],
+      "type": "ultimate"
+    }
+  ],
+  "assets": {
+    "portrait": "characters/sentinels/agility/garae/portrait.png",
+    "sprite": "characters/sentinels/agility/garae/sprite.png",
+    "animations": {
+      "idle": "characters/sentinels/agility/garae/animations/idle.png",
+      "attack": "characters/sentinels/agility/garae/animations/attack.png",
+      "move": "characters/sentinels/agility/garae/animations/move.png",
+      "death": "characters/sentinels/agility/garae/animations/death.png"
+    },
+    "effects": {
+      "projectile": "effects/projectiles/arrow.png",
+      "impact": "effects/impacts/arrow_impact.png"
+    }
+  },
+  "gameData": {
+    "cost": 3,
+    "unitRole": "assassin",
+    "skillType": "none",
+    "rarity": "rare"
+  }
+}

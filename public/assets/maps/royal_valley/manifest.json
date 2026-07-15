@@ -1,0 +1,22 @@
+{
+  "id": "royal_valley",
+  "logicalSize": { "width": 360, "height": 640 },
+  "sourceScale": 3,
+  "runtimeScale": 2,
+  "fallbackTexture": "battle_arena_royal_valley",
+  "layers": [
+    { "id": "ground", "path": "assets/maps/royal_valley/ground.png", "required": false },
+    { "id": "path", "path": "assets/maps/royal_valley/path.png", "required": false },
+    { "id": "river", "path": "assets/maps/royal_valley/river.png", "required": false },
+    { "id": "bridges", "path": "assets/maps/royal_valley/bridges.png", "required": false },
+    { "id": "tower_pads", "path": "assets/maps/royal_valley/tower_pads.png", "required": false },
+    { "id": "props", "path": "assets/maps/royal_valley/props.png", "required": false },
+    { "id": "shadow", "path": "assets/maps/royal_valley/shadow.png", "required": false },
+    { "id": "light", "path": "assets/maps/royal_valley/light.png", "required": false }
+  ],
+  "logic": {
+    "placementGrid": "Use existing GameMap logical coordinates until tile layers are authored.",
+    "towerPositions": "Use CONSTANTS.TOWERS positions."
+  }
+}
+

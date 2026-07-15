@@ -1,0 +1,76 @@
+{
+  "id": "akasha",
+  "name": "아카샤",
+  "title": "고통의 여왕",
+  "faction": "scourge",
+  "attribute": "agility",
+  "role": ["assassin", "nuker"],
+  "description": "블링크 기반 암살자/누커, 고통의 그림자로 지속 디버프",
+  "stats": {
+    "hp": 600,
+    "mp": 375,
+    "damage": [38, 44],
+    "armor": 4,
+    "moveSpeed": 300,
+    "attackRange": 650,
+    "attackSpeed": 1.6
+  },
+  "attributes": {
+    "primary": "agility",
+    "agility": { "base": 22, "gain": 2.5 },
+    "strength": { "base": 18, "gain": 2.0 },
+    "intelligence": { "base": 15, "gain": 1.5 }
+  },
+  "skills": [
+    {
+      "id": "blink",
+      "name": "순간 이동",
+      "hotkey": "B",
+      "description": "최대 400/550/700 거리 순간이동. 미사일 형태 기술 흡수 가능.",
+      "manaCost": [40, 50, 60],
+      "cooldown": 7,
+      "type": "active"
+    },
+    {
+      "id": "shadow_strike",
+      "name": "고통의 그림자",
+      "hotkey": "D",
+      "description": "적에게 독을 던져 12초간 초당 15/25/35 피해 + 방어력 감소 + 공속/이속 감소.",
+      "manaCost": [70, 90, 110],
+      "cooldown": 12,
+      "type": "active"
+    },
+    {
+      "id": "thorns",
+      "name": "유혹의 가시",
+      "hotkey": "passive",
+      "description": "영구적으로 방어력 2/4/6 증가. 적이 자신을 공격할 때마다 30/50/70 피해 반사.",
+      "type": "passive"
+    },
+    {
+      "id": "pain_spikes",
+      "name": "고통의 가시",
+      "hotkey": "W",
+      "description": "45초 지속 고통의 가시 소환. 공격력 90-110/130-150(카오스), 매 공격마다 방사 피해.",
+      "manaCost": [200, 250],
+      "cooldown": 165,
+      "type": "ultimate"
+    }
+  ],
+  "assets": {
+    "portrait": "characters/scourge/agility/akasha/portrait.png",
+    "sprite": "characters/scourge/agility/akasha/sprite.png",
+    "animations": {
+      "idle": "characters/scourge/agility/akasha/animations/idle.png",
+      "attack": "characters/scourge/agility/akasha/animations/attack.png",
+      "move": "characters/scourge/agility/akasha/animations/move.png",
+      "death": "characters/scourge/agility/akasha/animations/death.png"
+    }
+  },
+  "gameData": {
+    "cost": 4,
+    "unitRole": "support",
+    "skillType": "lifesteal",
+    "rarity": "rare"
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "id": "maiev",
+  "name": "마이에브",
+  "title": "센티널 퀸",
+  "faction": "sentinel",
+  "attribute": "agility",
+  "role": ["carry", "tank"],
+  "description": "성장형 근접 딜러 (아바타 기반 한타 파괴)",
+  "stats": {
+    "hp": 725,
+    "mp": 365,
+    "damage": [62, 68],
+    "armor": 3,
+    "moveSpeed": 330,
+    "attackRange": "melee",
+    "attackSpeed": 1.6
+  },
+  "attributes": {
+    "primary": "agility",
+    "agility": { "base": 20, "gain": 2.5 },
+    "strength": { "base": 19, "gain": 2.0 },
+    "intelligence": { "base": 16, "gain": 1.5 }
+  },
+  "skills": [
+    {
+      "id": "fan_knife",
+      "name": "마이에브 나이프",
+      "hotkey": "F",
+      "description": "800 범위 내 적에게 100/200/300 피해.",
+      "manaCost": [80, 85, 90],
+      "cooldown": 9,
+      "type": "active"
+    },
+    {
+      "id": "blink_feather",
+      "name": "깃털",
+      "hotkey": "B",
+      "description": "400/550/700 거리 순간이동. 미사일 기술 흡수.",
+      "manaCost": [20, 30, 40],
+      "cooldown": 8,
+      "type": "active"
+    },
+    {
+      "id": "dodge",
+      "name": "마이에브 닷지",
+      "hotkey": "passive",
+      "description": "5%/10%/15% 회피, 20% 확률로 2/2.5/3배 크리티컬.",
+      "type": "passive"
+    },
+    {
+      "id": "avatar",
+      "name": "폭주",
+      "hotkey": "V",
+      "description": "25초간 체력 +500, 공격력 +60, 방어력 +5, 마법 면역.",
+      "manaCost": 150,
+      "cooldown": 150,
+      "type": "ultimate"
+    }
+  ],
+  "assets": {
+    "portrait": "characters/sentinels/agility/maiev/portrait.png",
+    "sprite": "characters/sentinels/agility/maiev/sprite.png",
+    "animations": {
+      "idle": "characters/sentinels/agility/maiev/animations/idle.png",
+      "attack": "characters/sentinels/agility/maiev/animations/attack.png",
+      "move": "characters/sentinels/agility/maiev/animations/move.png",
+      "death": "characters/sentinels/agility/maiev/animations/death.png"
+    }
+  },
+  "gameData": {
+    "cost": 5,
+    "unitRole": "tank",
+    "skillType": "stun_hit",
+    "rarity": "epic"
+  }
+}

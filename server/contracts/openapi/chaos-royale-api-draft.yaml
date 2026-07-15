@@ -1,0 +1,881 @@
+openapi: 3.1.0
+info:
+  title: Chaos Royale Backend API (Draft)
+  version: 0.1.0-draft
+  summary: Initial API surface for auth, matchmaking, match result, and replay read.
+servers:
+  - url: https://api.chaos-royale.example
+tags:
+  - name: auth
+  - name: matchmaking
+  - name: match-rooms
+  - name: matches
+  - name: replay
+paths:
+  /v1/health:
+    get:
+      operationId: getHealth
+      summary: Basic health endpoint for gateway checks.
+      responses:
+        '200':
+          description: Healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - utc
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                  utc:
+                    type: string
+                    format: date-time
+  /v1/auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Create player session token by provider.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Session issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/matchmaking/enqueue:
+    post:
+      operationId: enqueueMatchmaking
+      tags: [matchmaking]
+      summary: Enter queue with deck snapshot and queue type.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnqueueRequest'
+      responses:
+        '202':
+          description: Queue ticket created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnqueueResponse'
+        '409':
+          description: Already in queue or invalid state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/matchmaking/cancel:
+    post:
+      operationId: cancelMatchmaking
+      tags: [matchmaking]
+      summary: Cancel active queue ticket.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelMatchmakingRequest'
+      responses:
+        '200':
+          description: Queue ticket canceled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelMatchmakingResponse'
+        '404':
+          description: Ticket not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/matchmaking/policy:
+    get:
+      operationId: getMatchmakingPolicy
+      tags: [matchmaking]
+      summary: Read current matchmaking region/MMR policy snapshot.
+      responses:
+        '200':
+          description: Current matchmaking policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchmakingPolicy'
+  /v1/matchmaking/tick:
+    post:
+      operationId: runMatchmakingTick
+      tags: [matchmaking]
+      summary: Run one in-memory queue matchmaking tick (internal/admin).
+      responses:
+        '200':
+          description: Match assignments generated from queue state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchAssignmentsResponse'
+  /v1/match-rooms/create:
+    post:
+      operationId: createMatchRoom
+      tags: [match-rooms]
+      summary: Create new match room in created state.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMatchRoomRequest'
+      responses:
+        '201':
+          description: Match room created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchRoomActionResponse'
+  /v1/match-rooms/{roomId}/join:
+    post:
+      operationId: joinMatchRoom
+      tags: [match-rooms]
+      summary: Join player to room and advance lifecycle if full.
+      parameters:
+        - in: path
+          name: roomId
+          required: true
+          schema:
+            type: string
+            pattern: '^r_[a-zA-Z0-9_-]{8,}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JoinMatchRoomRequest'
+      responses:
+        '200':
+          description: Room join accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchRoomActionResponse'
+        '409':
+          description: Invalid room state or room full.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/match-rooms/{roomId}/finish:
+    post:
+      operationId: finishMatchRoom
+      tags: [match-rooms]
+      summary: Mark room result and transition running -> finishing.
+      parameters:
+        - in: path
+          name: roomId
+          required: true
+          schema:
+            type: string
+            pattern: '^r_[a-zA-Z0-9_-]{8,}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinishMatchRoomRequest'
+      responses:
+        '200':
+          description: Room finish accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchRoomActionResponse'
+        '409':
+          description: Invalid room state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/match-rooms/{roomId}/cleanup:
+    post:
+      operationId: cleanupMatchRoom
+      tags: [match-rooms]
+      summary: Cleanup finishing room and archive it.
+      parameters:
+        - in: path
+          name: roomId
+          required: true
+          schema:
+            type: string
+            pattern: '^r_[a-zA-Z0-9_-]{8,}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CleanupMatchRoomRequest'
+      responses:
+        '200':
+          description: Cleanup completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CleanupMatchRoomResponse'
+        '409':
+          description: Invalid room state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/matches/result:
+    post:
+      operationId: submitMatchResult
+      tags: [matches]
+      summary: Submit authoritative match result from simulator.
+      security:
+        - SimulatorKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchResultRequest'
+      responses:
+        '202':
+          description: Result accepted for persistence/MMR/replay processing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchResultResponse'
+        '400':
+          description: Invalid payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Duplicate match id with conflicting digest.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/matches/{matchId}/summary:
+    get:
+      operationId: getMatchSummary
+      tags: [matches]
+      summary: Retrieve persisted match summary by match id.
+      parameters:
+        - in: path
+          name: matchId
+          required: true
+          schema:
+            type: string
+            pattern: '^m_[a-zA-Z0-9_-]{8,}$'
+      responses:
+        '200':
+          description: Match summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchSummaryResponse'
+        '404':
+          description: Match summary not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/replays/{matchId}:
+    get:
+      operationId: getReplay
+      tags: [replay]
+      summary: Retrieve replay metadata and short-lived download URL.
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: matchId
+          required: true
+          schema:
+            type: string
+            pattern: '^m_[a-zA-Z0-9_-]{8,}$'
+      responses:
+        '200':
+          description: Replay metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReplayResponse'
+        '404':
+          description: Replay not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    SimulatorKey:
+      type: apiKey
+      in: header
+      name: X-Simulator-Key
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        traceId:
+          type: string
+    LoginRequest:
+      type: object
+      required: [provider, providerToken, deviceId, clientVersion]
+      properties:
+        provider:
+          type: string
+          enum: [guest, google, apple]
+        providerToken:
+          type: string
+          minLength: 8
+        deviceId:
+          type: string
+          minLength: 8
+        clientVersion:
+          type: string
+          example: 0.9.0
+        locale:
+          type: string
+          example: ko-KR
+    LoginResponse:
+      type: object
+      required:
+        - playerId
+        - accessToken
+        - refreshToken
+        - expiresInSec
+        - issuedAtUtc
+      properties:
+        playerId:
+          type: string
+          pattern: '^p_[a-zA-Z0-9_-]{6,}$'
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresInSec:
+          type: integer
+          minimum: 60
+        issuedAtUtc:
+          type: string
+          format: date-time
+    DeckCard:
+      type: object
+      required: [cardId, level]
+      properties:
+        cardId:
+          type: string
+          minLength: 2
+        level:
+          type: integer
+          minimum: 1
+          maximum: 15
+    EnqueueRequest:
+      type: object
+      required: [playerId, queueType, deck, mmr, regionPreference, pingByRegion, clientSnapshotHash]
+      properties:
+        playerId:
+          type: string
+          pattern: '^p_[a-zA-Z0-9_-]{6,}$'
+        queueType:
+          type: string
+          enum: [ladder_1v1, custom_1v1, party_2v2]
+        deck:
+          type: array
+          minItems: 8
+          maxItems: 8
+          items:
+            $ref: '#/components/schemas/DeckCard'
+        mmr:
+          type: integer
+          minimum: 0
+        regionPreference:
+          type: string
+          enum: [auto, ap-northeast, ap-southeast, us-west, us-east, eu-central]
+        pingByRegion:
+          type: object
+          additionalProperties:
+            type: number
+            minimum: 1
+          example:
+            ap-northeast: 16
+            ap-southeast: 74
+            us-west: 132
+        clientSnapshotHash:
+          type: string
+          description: Client roster/deck state hash to detect stale clients.
+    EnqueueResponse:
+      type: object
+      required: [ticketId, status, estimatedWaitSec, queueRegion, enqueuedAtUtc]
+      properties:
+        ticketId:
+          type: string
+          pattern: '^q_[a-zA-Z0-9_-]{8,}$'
+        status:
+          type: string
+          enum: [queued]
+        estimatedWaitSec:
+          type: integer
+          minimum: 0
+        queueRegion:
+          type: string
+        enqueuedAtUtc:
+          type: string
+          format: date-time
+    CancelMatchmakingRequest:
+      type: object
+      required: [playerId, ticketId]
+      properties:
+        playerId:
+          type: string
+        ticketId:
+          type: string
+        reason:
+          type: string
+          enum: [manual, timeout, disconnect]
+    CancelMatchmakingResponse:
+      type: object
+      required: [ticketId, status, canceledAtUtc]
+      properties:
+        ticketId:
+          type: string
+        status:
+          type: string
+          enum: [canceled]
+        canceledAtUtc:
+          type: string
+          format: date-time
+    MatchmakingPolicy:
+      type: object
+      required: [maxAllowedPingMs, queuePolicies, regionFallbackPriority]
+      properties:
+        maxAllowedPingMs:
+          type: integer
+        queuePolicies:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/QueuePolicy'
+        regionFallbackPriority:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+    QueuePolicy:
+      type: object
+      required: [playersPerRoom, estimatedWaitSec, mmrExpansionRules, regionExpansionRules]
+      properties:
+        playersPerRoom:
+          type: integer
+          enum: [2, 4]
+        estimatedWaitSec:
+          type: integer
+          minimum: 0
+        mmrExpansionRules:
+          type: array
+          items:
+            $ref: '#/components/schemas/MmrExpansionRule'
+        regionExpansionRules:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegionExpansionRule'
+    MmrExpansionRule:
+      type: object
+      required: [afterSec, delta]
+      properties:
+        afterSec:
+          type: integer
+          minimum: 0
+        delta:
+          type: integer
+          minimum: 0
+    RegionExpansionRule:
+      type: object
+      required: [afterSec, widenToCount]
+      properties:
+        afterSec:
+          type: integer
+          minimum: 0
+        widenToCount:
+          type: integer
+          minimum: 1
+    MatchAssignmentsResponse:
+      type: object
+      required: [assignments]
+      properties:
+        assignments:
+          type: array
+          items:
+            $ref: '#/components/schemas/MatchAssignment'
+    MatchAssignment:
+      type: object
+      required: [roomId, queueType, region, playerIds, ticketIds, matchedAtUtc]
+      properties:
+        roomId:
+          type: string
+          pattern: '^r_[a-zA-Z0-9_-]{8,}$'
+        queueType:
+          type: string
+          enum: [ladder_1v1, custom_1v1, party_2v2]
+        region:
+          type: string
+          enum: [ap-northeast, ap-southeast, us-west, us-east, eu-central]
+        playerIds:
+          type: array
+          minItems: 2
+          maxItems: 4
+          items:
+            type: string
+        ticketIds:
+          type: array
+          minItems: 2
+          maxItems: 4
+          items:
+            type: string
+        matchedAtUtc:
+          type: string
+          format: date-time
+    CreateMatchRoomRequest:
+      type: object
+      required: [queueType, region, maxPlayers]
+      properties:
+        queueType:
+          type: string
+          enum: [ladder_1v1, custom_1v1, party_2v2]
+        region:
+          type: string
+          enum: [ap-northeast, ap-southeast, us-west, us-east, eu-central]
+        maxPlayers:
+          type: integer
+          enum: [2, 4]
+        ownerPlayerId:
+          type: string
+    JoinMatchRoomRequest:
+      type: object
+      required: [playerId]
+      properties:
+        roomId:
+          type: string
+        playerId:
+          type: string
+    FinishMatchRoomRequest:
+      type: object
+      required: [winnerTeamId, resultDigestSha256, endedAtUtc]
+      properties:
+        roomId:
+          type: string
+        winnerTeamId:
+          type: string
+          enum: [blue, red, draw]
+        resultDigestSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        endedAtUtc:
+          type: string
+          format: date-time
+    CleanupMatchRoomRequest:
+      type: object
+      required: [reason]
+      properties:
+        roomId:
+          type: string
+        reason:
+          type: string
+          enum: [completed, aborted, timeout]
+    MatchRoomActionResponse:
+      type: object
+      required: [room]
+      properties:
+        room:
+          $ref: '#/components/schemas/MatchRoomSnapshot'
+    CleanupMatchRoomResponse:
+      type: object
+      required: [roomId, cleanedUp, archivedRevision, cleanedAtUtc]
+      properties:
+        roomId:
+          type: string
+        cleanedUp:
+          type: boolean
+        archivedRevision:
+          type: integer
+          minimum: 1
+        cleanedAtUtc:
+          type: string
+          format: date-time
+    MatchRoomSnapshot:
+      type: object
+      required:
+        - roomId
+        - queueType
+        - region
+        - state
+        - revision
+        - maxPlayers
+        - playerIds
+        - createdAtUtc
+        - updatedAtUtc
+      properties:
+        roomId:
+          type: string
+        queueType:
+          type: string
+          enum: [ladder_1v1, custom_1v1, party_2v2]
+        region:
+          type: string
+          enum: [ap-northeast, ap-southeast, us-west, us-east, eu-central]
+        state:
+          type: string
+          enum: [created, queued, provisioning, running, finishing, archived, failed]
+        revision:
+          type: integer
+          minimum: 1
+        maxPlayers:
+          type: integer
+          enum: [2, 4]
+        playerIds:
+          type: array
+          items:
+            type: string
+        winnerTeamId:
+          type: string
+          enum: [blue, red, draw]
+        resultDigestSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        createdAtUtc:
+          type: string
+          format: date-time
+        updatedAtUtc:
+          type: string
+          format: date-time
+    TeamResult:
+      type: object
+      required: [teamId, playerIds, crowns, kingTowerHp]
+      properties:
+        teamId:
+          type: string
+          enum: [blue, red]
+        playerIds:
+          type: array
+          minItems: 1
+          maxItems: 2
+          items:
+            type: string
+        crowns:
+          type: integer
+          minimum: 0
+          maximum: 3
+        kingTowerHp:
+          type: integer
+          minimum: 0
+    MatchResultRequest:
+      type: object
+      required:
+        - matchId
+        - queueType
+        - startedAtUtc
+        - endedAtUtc
+        - winnerTeamId
+        - teams
+        - initialStateHash
+        - eventsDigestSha256
+        - replayKey
+        - serverBuild
+      properties:
+        matchId:
+          type: string
+          pattern: '^m_[a-zA-Z0-9_-]{8,}$'
+        queueType:
+          type: string
+          enum: [ladder_1v1, custom_1v1, party_2v2]
+        startedAtUtc:
+          type: string
+          format: date-time
+        endedAtUtc:
+          type: string
+          format: date-time
+        winnerTeamId:
+          type: string
+          enum: [blue, red, draw]
+        teams:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            $ref: '#/components/schemas/TeamResult'
+        initialStateHash:
+          type: string
+        rngSeed:
+          type: integer
+          minimum: 0
+        inputCount:
+          type: integer
+          minimum: 0
+        eventsDigestSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        replayKey:
+          type: string
+          description: Object storage key for replay payload.
+        serverBuild:
+          type: string
+          example: simulator-0.1.0+20260305
+    MatchResultResponse:
+      type: object
+      required: [matchId, accepted, resultVersion]
+      properties:
+        matchId:
+          type: string
+        accepted:
+          type: boolean
+        resultVersion:
+          type: integer
+          minimum: 1
+    MatchSummaryResponse:
+      type: object
+      required:
+        - matchId
+        - queueType
+        - startedAtUtc
+        - endedAtUtc
+        - durationSec
+        - winnerTeamId
+        - teams
+        - initialStateHash
+        - rngSeed
+        - inputCount
+        - eventsDigestSha256
+        - replayKey
+        - serverBuild
+        - resultVersion
+        - acceptedAtUtc
+        - mmrUpdates
+      properties:
+        matchId:
+          type: string
+          pattern: '^m_[a-zA-Z0-9_-]{8,}$'
+        queueType:
+          type: string
+          enum: [ladder_1v1, custom_1v1, party_2v2]
+        startedAtUtc:
+          type: string
+          format: date-time
+        endedAtUtc:
+          type: string
+          format: date-time
+        durationSec:
+          type: integer
+          minimum: 1
+        winnerTeamId:
+          type: string
+          enum: [blue, red, draw]
+        teams:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            $ref: '#/components/schemas/TeamResult'
+        initialStateHash:
+          type: string
+        rngSeed:
+          type: integer
+          minimum: 0
+        inputCount:
+          type: integer
+          minimum: 0
+        eventsDigestSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        replayKey:
+          type: string
+        serverBuild:
+          type: string
+        resultVersion:
+          type: integer
+          minimum: 1
+        acceptedAtUtc:
+          type: string
+          format: date-time
+        mmrUpdates:
+          type: array
+          items:
+            $ref: '#/components/schemas/MmrUpdate'
+    MmrUpdate:
+      type: object
+      required: [playerId, before, after, delta]
+      properties:
+        playerId:
+          type: string
+          pattern: '^p_[a-zA-Z0-9_-]{6,}$'
+        before:
+          type: integer
+          minimum: 0
+        after:
+          type: integer
+          minimum: 0
+        delta:
+          type: integer
+    ReplayResponse:
+      type: object
+      required:
+        - matchId
+        - replayKey
+        - downloadUrl
+        - urlExpiresAtUtc
+        - initialStateHash
+        - rngSeed
+        - inputCount
+        - durationSec
+      properties:
+        matchId:
+          type: string
+        replayKey:
+          type: string
+        downloadUrl:
+          type: string
+          format: uri
+        urlExpiresAtUtc:
+          type: string
+          format: date-time
+        initialStateHash:
+          type: string
+        rngSeed:
+          type: integer
+          minimum: 0
+        inputCount:
+          type: integer
+          minimum: 0
+        durationSec:
+          type: integer
+          minimum: 1

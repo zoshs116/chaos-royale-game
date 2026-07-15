@@ -1,0 +1,83 @@
+{
+  "id": "medusa",
+  "name": "메두사",
+  "title": "나가왕국 여왕",
+  "faction": "scourge",
+  "attribute": "intelligence",
+  "role": ["nuker", "disabler"],
+  "description": "석화 기반 누커/정찰, 바다뱀 소환으로 견제",
+  "stats": {
+    "hp": 555,
+    "mp": 515,
+    "damage": [37, 43],
+    "armor": 2,
+    "moveSpeed": 300,
+    "attackRange": 700,
+    "attackSpeed": 1.8
+  },
+  "attributes": {
+    "primary": "intelligence",
+    "intelligence": { "base": 21, "gain": 3.0 },
+    "strength": { "base": 18, "gain": 2.0 },
+    "agility": { "base": 16, "gain": 1.0 }
+  },
+  "skills": [
+    {
+      "id": "gaze",
+      "name": "파멸의 시선",
+      "hotkey": "B",
+      "description": "100/200/300 피해 + 1/1.75/2.5초 기절. 사거리 650/700/750.",
+      "manaCost": [75, 100, 120],
+      "cooldown": 9,
+      "type": "active"
+    },
+    {
+      "id": "sea_snake",
+      "name": "바다뱀 소환",
+      "hotkey": "D",
+      "description": "바다뱀 2기 소환. 바다뱀: 체력 365/465/565, 공격력 20-22/24-26/28-30(영웅).",
+      "manaCost": [60, 70, 80],
+      "cooldown": [10, 6.5, 3],
+      "type": "active"
+    },
+    {
+      "id": "chain_lightning",
+      "name": "갈라진 번개",
+      "hotkey": "F",
+      "description": "대상과 근처 유닛에게 120/240/360 피해. 사거리 600, 효과범위 400.",
+      "manaCost": [90, 110, 130],
+      "cooldown": 10,
+      "type": "active"
+    },
+    {
+      "id": "heat_wave",
+      "name": "폭염",
+      "hotkey": "W",
+      "description": "10/12초간 600 범위 내 적에게 60/90 피해 × 40회. 맞은 유닛 15초간 도트 피해.",
+      "manaCost": [200, 250],
+      "cooldown": 165,
+      "type": "ultimate"
+    }
+  ],
+  "assets": {
+    "portrait": "characters/scourge/intelligence/medusa/portrait.png",
+    "sprite": "characters/scourge/intelligence/medusa/sprite.png",
+    "animations": {
+      "idle": "characters/scourge/intelligence/medusa/animations/idle.png",
+      "attack": "characters/scourge/intelligence/medusa/animations/attack.png",
+      "move": "characters/scourge/intelligence/medusa/animations/move.png",
+      "death": "characters/scourge/intelligence/medusa/animations/death.png"
+    },
+    "effects": {
+      "projectile": "effects/projectiles/medusa_beam.png",
+      "impact": "effects/impacts/stone_impact.png",
+      "petrify": "effects/auras/petrify.png"
+    }
+  },
+  "gameData": {
+    "cost": 4,
+    "unitRole": "mage",
+    "skillType": "petrify",
+    "rarity": "epic"
+  }
+}

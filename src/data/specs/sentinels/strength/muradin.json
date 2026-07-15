@@ -1,0 +1,77 @@
+{
+  "id": "muradin",
+  "name": "무라딘",
+  "title": "마운틴 킹",
+  "faction": "sentinel",
+  "attribute": "strength",
+  "role": ["tank", "initiator"],
+  "description": "근접 탱커/전사, 한타 이니시에이터",
+  "stats": {
+    "hp": 800,
+    "mp": 260,
+    "damage": [53, 59],
+    "armor": 3,
+    "moveSpeed": 330,
+    "attackRange": "melee",
+    "attackSpeed": 1.6
+  },
+  "attributes": {
+    "primary": "strength",
+    "strength": { "base": 22, "gain": 2.5 },
+    "agility": { "base": 19, "gain": 2.0 },
+    "intelligence": { "base": 14, "gain": 1.5 }
+  },
+  "skills": [
+    {
+      "id": "thunder_clap",
+      "name": "라이징 썬더 클랩",
+      "hotkey": "C",
+      "description": "550 범위 내 적에게 100/200/300 피해 + 1/1.25/1.5초 기절.",
+      "manaCost": [70, 85, 100],
+      "cooldown": 9,
+      "type": "active"
+    },
+    {
+      "id": "avatar",
+      "name": "자이언트 그로스",
+      "hotkey": "V",
+      "description": "18초간 체력 +100/200/300, 방어력 -4, 마법 면역.",
+      "manaCost": [80, 90, 100],
+      "cooldown": 65,
+      "type": "active"
+    },
+    {
+      "id": "bash",
+      "name": "마르티산의 도끼",
+      "hotkey": "passive",
+      "description": "마법 면역이 아닌 적 공격 시 50/100/150 추가 피해 + 0.5초 기절.",
+      "cooldown": [7, 6, 5],
+      "type": "passive"
+    },
+    {
+      "id": "thor_judgment",
+      "name": "토르의 심판",
+      "hotkey": "T",
+      "description": "600 범위 내 적에게 550/800 피해 + 4초간 이속 30%/50% 감소. 1.5초 후 2초 기절.",
+      "manaCost": [150, 200],
+      "cooldown": 165,
+      "type": "ultimate"
+    }
+  ],
+  "assets": {
+    "portrait": "characters/sentinels/strength/muradin/portrait.png",
+    "sprite": "characters/sentinels/strength/muradin/sprite.png",
+    "animations": {
+      "idle": "characters/sentinels/strength/muradin/animations/idle.png",
+      "attack": "characters/sentinels/strength/muradin/animations/attack.png",
+      "move": "characters/sentinels/strength/muradin/animations/move.png",
+      "death": "characters/sentinels/strength/muradin/animations/death.png"
+    }
+  },
+  "gameData": {
+    "cost": 4,
+    "unitRole": "tank",
+    "skillType": "stun_hit",
+    "rarity": "rare"
+  }
+}

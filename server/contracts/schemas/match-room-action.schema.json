@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chaos-royale.example/schemas/match-room-action.schema.json",
+  "title": "MatchRoomActionRequest",
+  "type": "object",
+  "required": ["action", "roomId", "issuedAtUtc"],
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": ["create", "join", "finish", "cleanup"]
+    },
+    "roomId": {
+      "type": "string",
+      "pattern": "^r_[a-zA-Z0-9_-]{8,}$"
+    },
+    "playerId": {
+      "type": "string",
+      "pattern": "^p_[a-zA-Z0-9_-]{6,}$"
+    },
+    "winnerTeamId": {
+      "type": "string",
+      "enum": ["blue", "red", "draw"]
+    },
+    "resultDigestSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "reason": {
+      "type": "string",
+      "enum": ["completed", "aborted", "timeout"]
+    },
+    "issuedAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}
