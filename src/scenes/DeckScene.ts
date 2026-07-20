@@ -289,7 +289,7 @@ export default class DeckScene extends Phaser.Scene {
 
     private initCards() {
         const unitKeys = Object.keys(UNIT_TYPES).filter((key) => UNIT_FACTIONS[key] && !UNIT_FACTIONS[key].isHidden);
-        const pinnedUnits = ['skeleton_swordsman', 'spear_goblin', 'royal_giant', 'hog_rider', 'duckxel_barbarian', 'duckxel_sword_man'].filter((key) => unitKeys.includes(key));
+        const pinnedUnits = ['skeleton_swordsman', 'spear_goblin', 'royal_giant', 'hog_rider', 'duckxel_barbarian', 'duckxel_sword_man', 'duckxel_muradin'].filter((key) => unitKeys.includes(key));
         this.selectedDeck = [
             ...pinnedUnits,
             ...unitKeys.filter((key) => !pinnedUnits.includes(key)),

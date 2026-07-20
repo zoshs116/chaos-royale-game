@@ -4,7 +4,7 @@ import { open, type Database } from 'sqlite';
 import * as sqlite3 from 'sqlite3';
 import type { MatchSummary } from '../services/matches/src/types';
 import type { ReplayRecord } from '../services/replay/src/types';
-import type { PlayerRatingRecord, ServerStorage } from './types';
+import type { PlayerProgressionRecord, PlayerRatingRecord, ServerStorage } from './types';
 
 interface MatchSummaryRow {
     match_id: string;
@@ -23,6 +23,7 @@ interface MatchSummaryRow {
     result_version: number;
     accepted_at_utc: string;
     mmr_updates_json: string;
+    progression_updates_json: string;
 }
 
 interface ReplayRow {
@@ -39,6 +40,16 @@ interface ReplayRow {
 interface PlayerRatingRow {
     player_id: string;
     rating: number;
+    updated_at_utc: string;
+}
+
+interface PlayerProgressionRow {
+    player_id: string;
+    wins: number;
+    losses: number;
+    trophies: number;
+    gold: number;
+    gems: number;
     updated_at_utc: string;
 }
 
@@ -95,7 +106,21 @@ export default class SqliteStorage implements ServerStorage {
                 rating INTEGER NOT NULL,
                 updated_at_utc TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS player_progression (
+                player_id TEXT PRIMARY KEY,
+                wins INTEGER NOT NULL DEFAULT 0,
+                losses INTEGER NOT NULL DEFAULT 0,
+                trophies INTEGER NOT NULL DEFAULT 0,
+                gold INTEGER NOT NULL DEFAULT 0,
+                gems INTEGER NOT NULL DEFAULT 0,
+                updated_at_utc TEXT NOT NULL
+            );
         `);
+        const summaryColumns = await db.all<Array<{ name: string }>>(`PRAGMA table_info(match_summaries)`);
+        if (!summaryColumns.some((column) => column.name === 'progression_updates_json')) {
+            await db.exec(`ALTER TABLE match_summaries ADD COLUMN progression_updates_json TEXT NOT NULL DEFAULT '[]'`);
+        }
 
         return new SqliteStorage(db);
     }
@@ -124,7 +149,8 @@ export default class SqliteStorage implements ServerStorage {
             serverBuild: row.server_build,
             resultVersion: row.result_version,
             acceptedAtUtc: row.accepted_at_utc,
-            mmrUpdates: JSON.parse(row.mmr_updates_json)
+            mmrUpdates: JSON.parse(row.mmr_updates_json),
+            progressionUpdates: JSON.parse(row.progression_updates_json ?? '[]'),
         };
     }
 
@@ -135,8 +161,8 @@ export default class SqliteStorage implements ServerStorage {
                 match_id, queue_type, started_at_utc, ended_at_utc, duration_sec,
                 winner_team_id, teams_json, initial_state_hash, rng_seed, input_count,
                 events_digest_sha256, replay_key, server_build, result_version, accepted_at_utc,
-                mmr_updates_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                mmr_updates_json, progression_updates_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(match_id) DO UPDATE SET
                 queue_type = excluded.queue_type,
                 started_at_utc = excluded.started_at_utc,
@@ -152,7 +178,8 @@ export default class SqliteStorage implements ServerStorage {
                 server_build = excluded.server_build,
                 result_version = excluded.result_version,
                 accepted_at_utc = excluded.accepted_at_utc,
-                mmr_updates_json = excluded.mmr_updates_json
+                mmr_updates_json = excluded.mmr_updates_json,
+                progression_updates_json = excluded.progression_updates_json
             `,
             summary.matchId,
             summary.queueType,
@@ -169,7 +196,8 @@ export default class SqliteStorage implements ServerStorage {
             summary.serverBuild,
             summary.resultVersion,
             summary.acceptedAtUtc,
-            JSON.stringify(summary.mmrUpdates)
+            JSON.stringify(summary.mmrUpdates),
+            JSON.stringify(summary.progressionUpdates)
         );
     }
 
@@ -246,6 +274,46 @@ export default class SqliteStorage implements ServerStorage {
             `,
             record.playerId,
             record.rating,
+            record.updatedAtUtc
+        );
+    }
+
+    public async getPlayerProgression(playerId: string): Promise<PlayerProgressionRecord | null> {
+        const row = await this.db.get<PlayerProgressionRow>(
+            `SELECT * FROM player_progression WHERE player_id = ?`,
+            playerId
+        );
+        if (!row) return null;
+        return {
+            playerId: row.player_id,
+            wins: row.wins,
+            losses: row.losses,
+            trophies: row.trophies,
+            gold: row.gold,
+            gems: row.gems,
+            updatedAtUtc: row.updated_at_utc,
+        };
+    }
+
+    public async upsertPlayerProgression(record: PlayerProgressionRecord): Promise<void> {
+        await this.db.run(
+            `
+            INSERT INTO player_progression (player_id, wins, losses, trophies, gold, gems, updated_at_utc)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(player_id) DO UPDATE SET
+                wins = excluded.wins,
+                losses = excluded.losses,
+                trophies = excluded.trophies,
+                gold = excluded.gold,
+                gems = excluded.gems,
+                updated_at_utc = excluded.updated_at_utc
+            `,
+            record.playerId,
+            record.wins,
+            record.losses,
+            record.trophies,
+            record.gold,
+            record.gems,
             record.updatedAtUtc
         );
     }

@@ -29,10 +29,16 @@ tmp
 .env
 .env.*
 !.env.example
+.codex-temp/
 artifacts/
 assets_src/
+output/
+*.db
+*.db-shm
+*.db-wal
 public/assets_src/
 public/assets_processed/
+public/assets/battle/royal_valley_parts/restored/
 reference/
 research/
 tmp-ui-review/
@@ -53,3 +59,4 @@ docs/*
 scripts/*
 !scripts/generate-ui-atlas.mjs
 !scripts/normalize-tower-rubble.mjs
+!scripts/run-local-multiplayer.mjs

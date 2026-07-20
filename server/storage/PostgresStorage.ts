@@ -1,7 +1,7 @@
 import * as pg from 'pg';
 import type { MatchSummary } from '../services/matches/src/types';
 import type { ReplayRecord } from '../services/replay/src/types';
-import type { PlayerRatingRecord, ServerStorage } from './types';
+import type { PlayerProgressionRecord, PlayerRatingRecord, ServerStorage } from './types';
 
 interface MatchSummaryRow {
     match_id: string;
@@ -20,6 +20,7 @@ interface MatchSummaryRow {
     result_version: number;
     accepted_at_utc: string;
     mmr_updates_json: unknown;
+    progression_updates_json: unknown;
 }
 
 interface ReplayRow {
@@ -36,6 +37,16 @@ interface ReplayRow {
 interface PlayerRatingRow {
     player_id: string;
     rating: number;
+    updated_at_utc: string;
+}
+
+interface PlayerProgressionRow {
+    player_id: string;
+    wins: number;
+    losses: number;
+    trophies: number;
+    gold: number;
+    gems: number;
     updated_at_utc: string;
 }
 
@@ -79,7 +90,8 @@ export default class PostgresStorage implements ServerStorage {
             serverBuild: row.server_build,
             resultVersion: row.result_version,
             acceptedAtUtc: row.accepted_at_utc,
-            mmrUpdates: row.mmr_updates_json as MatchSummary['mmrUpdates']
+            mmrUpdates: row.mmr_updates_json as MatchSummary['mmrUpdates'],
+            progressionUpdates: row.progression_updates_json as MatchSummary['progressionUpdates'],
         };
     }
 
@@ -90,12 +102,12 @@ export default class PostgresStorage implements ServerStorage {
                 match_id, queue_type, started_at_utc, ended_at_utc, duration_sec,
                 winner_team_id, teams_json, initial_state_hash, rng_seed, input_count,
                 events_digest_sha256, replay_key, server_build, result_version, accepted_at_utc,
-                mmr_updates_json
+                mmr_updates_json, progression_updates_json
             ) VALUES (
                 $1, $2, $3, $4, $5,
                 $6, $7::jsonb, $8, $9, $10,
                 $11, $12, $13, $14, $15,
-                $16::jsonb
+                $16::jsonb, $17::jsonb
             )
             ON CONFLICT (match_id) DO UPDATE SET
                 queue_type = EXCLUDED.queue_type,
@@ -112,7 +124,8 @@ export default class PostgresStorage implements ServerStorage {
                 server_build = EXCLUDED.server_build,
                 result_version = EXCLUDED.result_version,
                 accepted_at_utc = EXCLUDED.accepted_at_utc,
-                mmr_updates_json = EXCLUDED.mmr_updates_json
+                mmr_updates_json = EXCLUDED.mmr_updates_json,
+                progression_updates_json = EXCLUDED.progression_updates_json
             `,
             [
                 summary.matchId,
@@ -130,7 +143,8 @@ export default class PostgresStorage implements ServerStorage {
                 summary.serverBuild,
                 summary.resultVersion,
                 summary.acceptedAtUtc,
-                JSON.stringify(summary.mmrUpdates)
+                JSON.stringify(summary.mmrUpdates),
+                JSON.stringify(summary.progressionUpdates)
             ]
         );
     }
@@ -213,6 +227,41 @@ export default class PostgresStorage implements ServerStorage {
         );
     }
 
+    public async getPlayerProgression(playerId: string): Promise<PlayerProgressionRecord | null> {
+        const result = await this.pool.query<PlayerProgressionRow>(
+            `SELECT * FROM player_progression WHERE player_id = $1`,
+            [playerId]
+        );
+        const row = result.rows[0];
+        if (!row) return null;
+        return {
+            playerId: row.player_id,
+            wins: row.wins,
+            losses: row.losses,
+            trophies: row.trophies,
+            gold: row.gold,
+            gems: row.gems,
+            updatedAtUtc: row.updated_at_utc,
+        };
+    }
+
+    public async upsertPlayerProgression(record: PlayerProgressionRecord): Promise<void> {
+        await this.pool.query(
+            `
+            INSERT INTO player_progression (player_id, wins, losses, trophies, gold, gems, updated_at_utc)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (player_id) DO UPDATE SET
+                wins = EXCLUDED.wins,
+                losses = EXCLUDED.losses,
+                trophies = EXCLUDED.trophies,
+                gold = EXCLUDED.gold,
+                gems = EXCLUDED.gems,
+                updated_at_utc = EXCLUDED.updated_at_utc
+            `,
+            [record.playerId, record.wins, record.losses, record.trophies, record.gold, record.gems, record.updatedAtUtc]
+        );
+    }
+
     public async close(): Promise<void> {
         await this.pool.end();
     }
@@ -237,6 +286,8 @@ export default class PostgresStorage implements ServerStorage {
                 accepted_at_utc TEXT NOT NULL,
                 mmr_updates_json JSONB NOT NULL
             );
+            ALTER TABLE match_summaries
+                ADD COLUMN IF NOT EXISTS progression_updates_json JSONB NOT NULL DEFAULT '[]'::jsonb;
 
             CREATE TABLE IF NOT EXISTS replays (
                 match_id TEXT PRIMARY KEY,
@@ -252,6 +303,16 @@ export default class PostgresStorage implements ServerStorage {
             CREATE TABLE IF NOT EXISTS player_ratings (
                 player_id TEXT PRIMARY KEY,
                 rating INTEGER NOT NULL,
+                updated_at_utc TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS player_progression (
+                player_id TEXT PRIMARY KEY,
+                wins INTEGER NOT NULL DEFAULT 0,
+                losses INTEGER NOT NULL DEFAULT 0,
+                trophies INTEGER NOT NULL DEFAULT 0,
+                gold INTEGER NOT NULL DEFAULT 0,
+                gems INTEGER NOT NULL DEFAULT 0,
                 updated_at_utc TEXT NOT NULL
             );
         `);

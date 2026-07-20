@@ -36,3 +36,9 @@ export const toSupabaseError = <T>(message: string, cause?: unknown): SupabaseRe
     message,
     cause,
 });
+
+export async function hasAuthenticatedSupabaseSession(): Promise<boolean> {
+    if (!supabase) return false;
+    const { data, error } = await supabase.auth.getSession();
+    return !error && Boolean(data.session?.user.id);
+}

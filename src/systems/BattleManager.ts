@@ -128,6 +128,12 @@ export default class BattleManager {
         return Math.max(0, this.battleTime);
     }
 
+    applyRemoteState(remainingMs: number, blueCrowns: number, redCrowns: number) {
+        this.battleTime = Math.max(0, remainingMs / 1000);
+        this.blueCrowns = Math.max(0, blueCrowns);
+        this.redCrowns = Math.max(0, redCrowns);
+    }
+
     getBlueCrowns(): number {
         return this.blueCrowns;
     }

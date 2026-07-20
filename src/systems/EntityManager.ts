@@ -15,6 +15,7 @@ import {
     getDuckxelTunedSpeed,
     getDuckxelBattleProfile,
 } from '../data/DuckxelBattleProfiles';
+import type { ActiveSkillDefinition, ActiveSkillImpactWave } from '../data/ActiveSkillData';
 
 const UNIT_MOVEMENT_SPEED_MULTIPLIER = 0.7;
 const UNIT_ATTACK_INTERVAL_MULTIPLIER = 1.35;
@@ -112,6 +113,29 @@ export default class EntityManager {
         return spawned;
     }
 
+    spawnRemoteUnit(x: number, y: number, team: 'blue' | 'red', unitKey: string, remoteId: string): Unit | null {
+        const data = UNIT_TYPES[unitKey];
+        if (!data) return null;
+        const tunedData = {
+            ...data,
+            spawnCount: 1,
+            speed: getDuckxelTunedSpeed(unitKey, data.speed, UNIT_MOVEMENT_SPEED_MULTIPLIER),
+            attackSpeed: getDuckxelTunedAttackInterval(unitKey, data.attackSpeed, UNIT_ATTACK_INTERVAL_MULTIPLIER),
+        };
+        const radius = getDuckxelBattleProfile(unitKey)?.collisionRadius ?? 10;
+        const spawnPoint = this.findValidSpawnPoint(x, y, radius);
+        const unit = new Unit(this.scene, spawnPoint.x, spawnPoint.y, data.spriteKey, team, tunedData);
+        unit.id = remoteId;
+        unit.setGameMap(this.gameMap);
+        unit.setSimulationOrder(this.nextSimulationOrder++);
+        unit.skillType = tunedData.skill;
+        unit.skillParams = { ...tunedData.skillParams };
+        unit.role = tunedData.role;
+        this.units.push(unit);
+        this.skillSystem.onSpawn(unit);
+        return unit;
+    }
+
     spawnTower(x: number, y: number, team: 'blue' | 'red', type: 'king' | 'princess'): Tower {
         const tower = new Tower(this.scene, x, y, team, type);
         tower.setGameMap(this.gameMap);
@@ -203,6 +227,182 @@ export default class EntityManager {
 
     getTowersByTeam(team: 'blue' | 'red'): Tower[] {
         return this.towers.filter(t => t.team === team && t.active);
+    }
+
+    public getActiveSkillUnits(team: 'blue' | 'red'): Unit[] {
+        return this.units.filter(unit =>
+            unit.team === team
+            && unit.active
+            && unit.state !== UnitState.DIE
+            && Boolean(unit.activeSkillDefinition)
+        );
+    }
+
+    public castActiveSkill(unit: Unit): boolean {
+        if (!this.units.includes(unit) || !unit.active || unit.state === UnitState.DIE) return false;
+        return unit.castActiveSkill((caster, definition) => {
+            this.resolveActiveSkillImpact(caster, definition);
+        });
+    }
+
+    public playRemoteActiveSkillCast(unit: Unit, castSerial: number): boolean {
+        if (!this.units.includes(unit) || !unit.active || unit.state === UnitState.DIE) return false;
+        return unit.playRemoteActiveSkillCast(castSerial, (caster, definition) => {
+            this.playActiveSkillImpactSequence(caster.x, caster.y, caster.team, definition);
+        });
+    }
+
+    private resolveActiveSkillImpact(caster: Unit, definition: ActiveSkillDefinition) {
+        if (!caster.active || caster.state === UnitState.DIE) return;
+        const impactX = caster.x;
+        const impactY = caster.y;
+        this.playActiveSkillImpactSequence(
+            impactX,
+            impactY,
+            caster.team,
+            definition,
+            (wave, waveIndex) => {
+                this.applyActiveSkillWaveDamage(caster, impactX, impactY, definition, wave);
+                this.scene.events.emit('activeSkillImpact', {
+                    caster,
+                    skillKey: definition.key,
+                    waveIndex,
+                    x: impactX,
+                    y: impactY,
+                });
+            },
+        );
+    }
+
+    private applyActiveSkillWaveDamage(
+        caster: Unit,
+        impactX: number,
+        impactY: number,
+        definition: ActiveSkillDefinition,
+        wave: ActiveSkillImpactWave,
+    ) {
+        for (const target of this.units) {
+            if (!target.active || target.state === UnitState.DIE || target.team === caster.team || target === caster) continue;
+            if (target.isTower && !definition.targetMask.towers) continue;
+            if (!target.isTower && !definition.targetMask.units) continue;
+            if (target.stats.movementType === 'air' && !definition.targetMask.air) continue;
+            if (target.stats.movementType === 'ground' && !definition.targetMask.ground) continue;
+
+            const distance = Phaser.Math.Distance.Between(impactX, impactY, target.x, target.y);
+            const targetRadius = Math.max(0, target.getCollisionRadius());
+            if (distance > wave.radius + targetRadius) continue;
+
+            const damage = Math.max(1, Math.round(
+                wave.damage * (target.isTower ? wave.towerDamageMultiplier : 1)
+            ));
+            target.takeDamage(damage, caster);
+            if (target.active && target.state !== UnitState.DIE) {
+                target.showHitReaction('splash', caster.team === 'blue' ? 0x8fcfff : 0xff8b76);
+            }
+        }
+    }
+
+    private playActiveSkillImpactSequence(
+        x: number,
+        y: number,
+        team: 'blue' | 'red',
+        definition: ActiveSkillDefinition,
+        onWave?: (wave: ActiveSkillImpactWave, waveIndex: number) => void,
+    ) {
+        const persistentEffects: Phaser.GameObjects.GameObject[] = [];
+        const frameDuration = Math.max(40, Math.round(1000 / definition.vfx.fps));
+        const lastWaveDelay = Math.max(...definition.impactWaves.map((wave) => wave.delayAfterLandingMs));
+        for (const [waveIndex, wave] of definition.impactWaves.entries()) {
+            const playWave = () => {
+                onWave?.(wave, waveIndex);
+                this.playActiveSkillImpactWave(x, y, team, definition, wave, persistentEffects);
+            };
+            if (wave.delayAfterLandingMs <= 0) playWave();
+            else this.scene.time.delayedCall(wave.delayAfterLandingMs, playWave);
+        }
+
+        const fadeDelay = lastWaveDelay + frameDuration * definition.vfx.frameCount + 80;
+        this.scene.time.delayedCall(fadeDelay, () => {
+            for (const effect of persistentEffects) {
+                if (!effect.active) continue;
+                this.scene.tweens.add({
+                    targets: effect,
+                    alpha: 0,
+                    duration: definition.effectFadeMs,
+                    ease: 'Sine.In',
+                    onComplete: () => effect.destroy(),
+                });
+            }
+        });
+    }
+
+    private playActiveSkillImpactWave(
+        x: number,
+        y: number,
+        team: 'blue' | 'red',
+        definition: ActiveSkillDefinition,
+        wave: ActiveSkillImpactWave,
+        persistentEffects: Phaser.GameObjects.GameObject[],
+    ) {
+        const color = team === 'blue' ? 0x78cfff : 0xff866f;
+        const depth = CONSTANTS.DEPTH.PROJECTILE + 4;
+        const frameDuration = Math.max(40, Math.round(1000 / definition.vfx.fps));
+        const firstTexture = `${definition.vfx.texturePrefix}_0`;
+
+        if (this.scene.textures.exists(firstTexture)) {
+            const impact = this.scene.add.image(x, y, firstTexture);
+            impact.setDepth(depth + 2);
+            impact.setDisplaySize(
+                definition.vfx.displaySize * wave.vfxScale,
+                definition.vfx.displaySize * wave.vfxScale,
+            );
+            impact.setBlendMode(Phaser.BlendModes.NORMAL);
+            persistentEffects.push(impact);
+            let frame = 0;
+            const timer = this.scene.time.addEvent({
+                delay: frameDuration,
+                repeat: Math.max(0, definition.vfx.frameCount - 2),
+                callback: () => {
+                    frame += 1;
+                    const texture = `${definition.vfx.texturePrefix}_${frame}`;
+                    if (impact.active && this.scene.textures.exists(texture)) impact.setTexture(texture);
+                },
+            });
+            this.scene.time.delayedCall(frameDuration * definition.vfx.frameCount, () => timer.remove(false));
+        }
+
+        const ring = this.scene.add.ellipse(x, y + 5, wave.radius * 2, wave.radius * 0.86, color, 0.22);
+        ring.setDepth(depth);
+        ring.setStrokeStyle(3, 0xffffff, 0.58);
+        persistentEffects.push(ring);
+        this.scene.tweens.add({
+            targets: ring,
+            alpha: 0.13,
+            scaleX: 1.22,
+            scaleY: 1.22,
+            duration: 310,
+            ease: 'Quad.Out',
+        });
+
+        const dustCount = Math.round(12 * wave.vfxScale);
+        for (let index = 0; index < dustCount; index += 1) {
+            const angle = (Math.PI * 2 * index) / dustCount + Math.PI / dustCount;
+            const dust = this.scene.add.circle(x, y + 5, 2.6 + (index % 3) * 0.45, 0xd8c39a, 0.82);
+            dust.setDepth(depth + 1);
+            this.scene.tweens.add({
+                targets: dust,
+                x: x + Math.cos(angle) * (wave.radius * 0.55 + (index % 3) * 8),
+                y: y + 5 + Math.sin(angle) * (wave.radius * 0.2 + (index % 4) * 3) - 7,
+                alpha: 0,
+                scaleX: 0.35,
+                scaleY: 0.35,
+                duration: 300 + (index % 4) * 34,
+                ease: 'Quad.Out',
+                onComplete: () => dust.destroy(),
+            });
+        }
+
+        this.scene.cameras.main.shake(wave.shakeDurationMs, wave.shakeIntensity);
     }
 
     public getAttackApproachPoint(attacker: Unit, target: Unit): { x: number; y: number } | null {

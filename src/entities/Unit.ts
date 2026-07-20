@@ -5,6 +5,10 @@ import type { Debuff } from '../systems/SkillSystem';
 import { getBattleLaneFromX, getDuckxelBattleProfile } from '../data/DuckxelBattleProfiles';
 import type { DuckxelBattleProfile } from '../data/DuckxelBattleProfiles';
 import { resolveCombatTarget } from '../systems/combat/TargetResolver';
+import { DUCKXEL_ASSET_PROFILES, resolveDuckxelDirectionAnimation } from '../data/DuckxelAnimationCatalog';
+import type { DuckxelAssetProfile, DuckxelDirection } from '../data/DuckxelAnimationCatalog';
+import { getActiveSkillDefinition } from '../data/ActiveSkillData';
+import type { ActiveSkillDefinition, ActiveSkillPhase, ActiveSkillRuntimeSnapshot } from '../data/ActiveSkillData';
 
 export const UnitState = {
     SPAWN: 0,
@@ -30,6 +34,7 @@ export interface UnitStats {
     projectileKey?: string;
     sightRange: number;
     spawnCount?: number;
+    activeSkill?: ActiveSkillDefinition['key'];
 }
 
 interface TeamPalette {
@@ -39,58 +44,10 @@ interface TeamPalette {
     fx: number;
 }
 
-type DuckxelDirection = 'north-east' | 'north-west' | 'south-east' | 'south-west';
 type BattleLane = 'left' | 'right';
 
 const DEFAULT_ACQUISITION_DELAY = 90;
 const DEFAULT_FIRST_HIT_DELAY = 180;
-
-interface DuckxelAssetProfile {
-    unitKey: string;
-    texturePrefix: string;
-    walkFrameCounts: Record<DuckxelDirection, number>;
-    attackFrameCounts: Record<DuckxelDirection, number>;
-    displaySize?: number;
-}
-
-const DUCKXEL_ASSET_PROFILES: Record<string, DuckxelAssetProfile> = {
-    duckxel_sword_man: {
-        unitKey: 'duckxel_sword_man',
-        texturePrefix: 'unit_duckxel_sword_man',
-        walkFrameCounts: { 'north-east': 3, 'north-west': 3, 'south-east': 6, 'south-west': 6 },
-        attackFrameCounts: { 'north-east': 4, 'north-west': 4, 'south-east': 4, 'south-west': 3 },
-    },
-    duckxel_barbarian: {
-        unitKey: 'duckxel_barbarian',
-        texturePrefix: 'unit_duckxel_barbarian',
-        walkFrameCounts: { 'north-east': 6, 'north-west': 2, 'south-east': 6, 'south-west': 6 },
-        attackFrameCounts: { 'north-east': 4, 'north-west': 4, 'south-east': 4, 'south-west': 4 },
-    },
-    royal_giant: {
-        unitKey: 'royal_giant',
-        texturePrefix: 'unit_royal_giant',
-        walkFrameCounts: { 'north-east': 6, 'north-west': 6, 'south-east': 6, 'south-west': 6 },
-        attackFrameCounts: { 'north-east': 0, 'north-west': 0, 'south-east': 0, 'south-west': 0 },
-    },
-    spear_goblin: {
-        unitKey: 'spear_goblin',
-        texturePrefix: 'unit_spear_goblin',
-        walkFrameCounts: { 'north-east': 6, 'north-west': 4, 'south-east': 6, 'south-west': 6 },
-        attackFrameCounts: { 'north-east': 4, 'north-west': 4, 'south-east': 3, 'south-west': 4 },
-    },
-    skeleton_swordsman: {
-        unitKey: 'skeleton_swordsman',
-        texturePrefix: 'unit_skeleton_swordsman',
-        walkFrameCounts: { 'north-east': 3, 'north-west': 3, 'south-east': 6, 'south-west': 6 },
-        attackFrameCounts: { 'north-east': 3, 'north-west': 3, 'south-east': 3, 'south-west': 3 },
-    },
-    hog_rider: {
-        unitKey: 'hog_rider',
-        texturePrefix: 'unit_hog_rider',
-        walkFrameCounts: { 'north-east': 6, 'north-west': 6, 'south-east': 5, 'south-west': 5 },
-        attackFrameCounts: { 'north-east': 3, 'north-west': 3, 'south-east': 4, 'south-west': 4 },
-    },
-};
 
 export default class Unit extends Phaser.GameObjects.Container {
     public id: string;
@@ -116,6 +73,14 @@ export default class Unit extends Phaser.GameObjects.Container {
     public slowFactor: number = 1;
     public hasDefenseAura: boolean = false;
     public defenseAuraReduction: number = 0;
+    public readonly activeSkillDefinition: ActiveSkillDefinition | null;
+    private activeSkillPhase: ActiveSkillPhase = 'ready';
+    private activeSkillCooldownRemainingMs: number = 0;
+    private activeSkillCastSerial: number = 0;
+    private remoteActiveSkillSerial: number = 0;
+    private activeSkillTimers: Phaser.Time.TimerEvent[] = [];
+    private activeSkillMotionTween: Phaser.Tweens.Tween | null = null;
+    private activeSkillAirborne: boolean = false;
 
     // Visual
     protected sprite: Phaser.GameObjects.Image | null = null;
@@ -133,6 +98,9 @@ export default class Unit extends Phaser.GameObjects.Container {
     private duckxelFrameIndex: number = 0;
     private duckxelFrameTimer: number = 0;
     private duckxelAttackPlaying: boolean = false;
+    private remoteAttackSerial: number = 0;
+    private remoteJumpSerial: number = 0;
+    private remoteElevation: number = 0;
     private isRiverJumping: boolean = false;
     private hogJumpTarget: { x: number; y: number } | null = null;
     private hogJumpCooldown: number = 0;
@@ -149,11 +117,14 @@ export default class Unit extends Phaser.GameObjects.Container {
     private firstHitDelayStarted: boolean = false;
     private targetAnchor: { x: number; y: number } | null = null;
     private contactScanRequested: boolean = false;
+    private towerTargetCommitted: boolean = false;
+    private attackSequenceId: number = 0;
     private pendingGameplayAttack: {
         kind: 'melee' | 'projectile';
         target: Unit;
         remaining: number;
         color: number;
+        sequenceId: number;
     } | null = null;
 
     // Movement
@@ -177,6 +148,7 @@ export default class Unit extends Phaser.GameObjects.Container {
         this.team = team;
         this.unitKey = unitKey;
         this.stats = { ...stats };
+        this.activeSkillDefinition = getActiveSkillDefinition(stats.activeSkill);
         this.maxHp = stats.hp;
         this.state = UnitState.SPAWN;
         this.id = Phaser.Utils.String.UUID();
@@ -602,7 +574,7 @@ export default class Unit extends Phaser.GameObjects.Container {
     }
 
     public getCollisionRadius(): number {
-        if (!this.active || this.state === UnitState.DIE || this.stats.movementType === 'air') return 0;
+        if (!this.active || this.state === UnitState.DIE || this.stats.movementType === 'air' || this.activeSkillAirborne) return 0;
         if (this.isTower) return this.isKingTower ? 28 : 22;
         if (this.duckxelBattleProfile) return this.duckxelBattleProfile.collisionRadius;
         if (this.isDuckxelTestUnit) return 13;
@@ -630,15 +602,155 @@ export default class Unit extends Phaser.GameObjects.Container {
         this.contactScanRequested = true;
     }
 
+    public interruptCombat(reason: 'stun' | 'knockback' | 'forced-displacement') {
+        if (this.isTower || this.state === UnitState.DIE || !this.active) return;
+
+        this.cancelAttackSequence();
+        if (reason === 'stun') this.cancelActiveSkillCast();
+        this.towerTargetCommitted = false;
+        this.firstHitPending = false;
+        this.firstHitDelayStarted = false;
+        this.firstHitTimer = 0;
+        this.attackTimer = 0;
+        this.acquisitionTimer = 0;
+        this.retargetTimer = 0;
+        this.contactScanRequested = false;
+        this.setTarget(null);
+        this.state = UnitState.IDLE;
+        (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+
+        if (reason !== 'stun') {
+            this.routeProgressTimer = 0;
+            this.routeStallCount = 0;
+        }
+    }
+
+    public applyCombatControlState(isStunned: boolean, slowFactor: number) {
+        const wasStunned = this.isStunned;
+        this.isStunned = isStunned;
+        this.slowFactor = slowFactor;
+
+        if (!wasStunned && isStunned) {
+            this.interruptCombat('stun');
+        } else if (wasStunned && !isStunned && this.state !== UnitState.DIE) {
+            this.acquisitionTimer = 0;
+            this.retargetTimer = 0;
+            this.state = UnitState.IDLE;
+        }
+    }
+
     public updateSortDepth() {
         const sortY = Phaser.Math.Clamp(this.y, 0, CONSTANTS.ARENA.UI_START);
         this.setDepth(CONSTANTS.DEPTH.UNIT + sortY * 0.09);
+    }
+
+    public applyRemoteVisualState(
+        x: number,
+        y: number,
+        hp: number,
+        remoteState: 'spawning' | 'idle' | 'moving' | 'attacking' | 'jumping' | 'stunned' | 'casting',
+        delta = 66,
+        remote?: {
+            attackSerial: number;
+            jumpSerial: number;
+            directionX: number;
+            directionY: number;
+            elevation: number;
+        }
+    ) {
+        if (!this.active || this.state === UnitState.DIE) return;
+        const previousX = this.x;
+        const previousY = this.y;
+        this.setPosition(x, y);
+        this.stats.hp = Phaser.Math.Clamp(hp, 0, this.maxHp);
+        const body = this.body as Phaser.Physics.Arcade.Body;
+        const scale = 1000 / Math.max(1, delta);
+        const velocityX = Math.abs(x - previousX) > 0.001
+            ? (x - previousX) * scale
+            : (remote?.directionX ?? 0) * (remoteState === 'moving' ? this.stats.speed : 0);
+        const velocityY = Math.abs(y - previousY) > 0.001
+            ? (y - previousY) * scale
+            : (remote?.directionY ?? 0) * (remoteState === 'moving' ? this.stats.speed : 0);
+        body.setVelocity(velocityX, velocityY);
+        this.remoteElevation = Math.max(0, remote?.elevation ?? 0);
+        if (remote && remote.jumpSerial > this.remoteJumpSerial) {
+            this.remoteJumpSerial = remote.jumpSerial;
+            this.restoreDuckxelIdleFrame();
+        }
+        if (remote && remote.attackSerial > this.remoteAttackSerial) {
+            this.remoteAttackSerial = remote.attackSerial;
+            this.playRemoteAttackAnimation(remote.directionX, remote.directionY);
+        }
+        this.state = remoteState === 'moving' || remoteState === 'jumping'
+            ? UnitState.MOVE
+            : remoteState === 'attacking' ? UnitState.ATTACK
+                : remoteState === 'spawning' ? UnitState.SPAWN : UnitState.IDLE;
+        this.updateHpBar();
+        this.updateSortDepth();
+        this.animateVisual(delta);
+        if (this.sprite && this.remoteElevation > 0) {
+            this.sprite.y = -7 - this.remoteElevation;
+            this.shadow.setAlpha(0.12);
+        } else {
+            this.shadow.setAlpha(this.duckxelBattleProfile?.shadow.alpha ?? 0.28);
+        }
+        body.setVelocity(0, 0);
+    }
+
+    private playRemoteAttackAnimation(directionX: number, directionY: number) {
+        if (!this.active || !this.sprite) return;
+        const sequenceId = ++this.attackSequenceId;
+        const color = this.team === 'blue' ? 0x8fd0ff : 0xff9f87;
+        this.duckxelDirection = this.getDuckxelDirection(directionX, directionY);
+        const profile = this.duckxelAssetProfile;
+        const frameCount = profile?.attackFrameCounts[this.duckxelDirection] ?? 0;
+        const frameDuration = this.duckxelBattleProfile?.attack.frameDuration ?? 90;
+        this.duckxelAttackPlaying = true;
+
+        if (!profile || frameCount <= 0) {
+            this.pulseAttackGlow(color);
+            const recoil = this.duckxelBattleProfile?.attack.recoilDistance ?? 0;
+            if (recoil > 0) {
+                this.scene.tweens.add({
+                    targets: this.sprite,
+                    x: -directionX * recoil,
+                    y: -2 - directionY * recoil,
+                    duration: 95,
+                    yoyo: true,
+                    ease: 'Sine.Out',
+                });
+            }
+            this.scene.time.delayedCall(Math.max(150, frameDuration * 2), () => {
+                if (sequenceId !== this.attackSequenceId) return;
+                this.duckxelAttackPlaying = false;
+                this.restoreDuckxelIdleFrame();
+            });
+            return;
+        }
+
+        for (let frame = 0; frame < frameCount; frame += 1) {
+            this.scene.time.delayedCall(frame * frameDuration, () => {
+                if (sequenceId !== this.attackSequenceId || !this.active || !this.sprite) return;
+                const frameKey = `${profile.texturePrefix}_attack_${this.duckxelDirection}_${frame}`;
+                if (!this.scene.textures.exists(frameKey)) return;
+                this.sprite.setTexture(frameKey);
+                const displaySize = this.getDuckxelDisplaySize();
+                this.sprite.setDisplaySize(displaySize, displaySize);
+                this.sprite.setScale(this.spriteBaseScale);
+            });
+        }
+        this.scene.time.delayedCall(frameCount * frameDuration, () => {
+            if (sequenceId !== this.attackSequenceId) return;
+            this.duckxelAttackPlaying = false;
+            this.restoreDuckxelIdleFrame();
+        });
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     update(_time: number, delta: number, entityManager?: any) {
         if (this.state === UnitState.DIE || !this.active) return;
         this.simulationTimeMs += delta;
+        this.updateActiveSkillRuntime(delta);
         if (entityManager) this.entityManagerRef = entityManager;
 
         // Reset aura flag each frame (will be reapplied by SkillSystem)
@@ -663,6 +775,13 @@ export default class Unit extends Phaser.GameObjects.Container {
             (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
             this.updateHpBar();
             this.animateVisual(delta);
+            return;
+        }
+
+        if (this.activeSkillPhase === 'casting') {
+            (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+            this.updateHpBar();
+            this.updateSortDepth();
             return;
         }
 
@@ -756,6 +875,7 @@ export default class Unit extends Phaser.GameObjects.Container {
                 }
                 this.startFirstHitDelayIfNeeded();
                 if (this.attackTimer <= 0 && this.firstHitTimer <= 0) {
+                    if (!this.prepareCommittedAttack(entityManager)) break;
                     this.performAttack();
                     this.firstHitPending = false;
                     this.firstHitDelayStarted = false;
@@ -774,8 +894,302 @@ export default class Unit extends Phaser.GameObjects.Container {
         this.animateVisual(delta);
     }
 
+    public getActiveSkillRuntime(): ActiveSkillRuntimeSnapshot | null {
+        const definition = this.activeSkillDefinition;
+        if (!definition) return null;
+        return {
+            key: definition.key,
+            phase: this.activeSkillPhase,
+            cooldownRemainingMs: this.activeSkillCooldownRemainingMs,
+            cooldownProgress: this.activeSkillPhase === 'ready'
+                ? 1
+                : Phaser.Math.Clamp(1 - this.activeSkillCooldownRemainingMs / definition.cooldownMs, 0, 1),
+            castSerial: this.activeSkillCastSerial,
+        };
+    }
+
+    public canCastActiveSkill(): boolean {
+        return Boolean(
+            this.activeSkillDefinition
+            && this.activeSkillPhase === 'ready'
+            && this.active
+            && this.state !== UnitState.DIE
+            && !this.isStunned
+        );
+    }
+
+    public beginActiveSkillRuntime(): number | null {
+        if (!this.canCastActiveSkill()) return null;
+        this.activeSkillPhase = 'casting';
+        this.activeSkillCooldownRemainingMs = this.activeSkillDefinition?.cooldownMs ?? 0;
+        this.activeSkillCastSerial += 1;
+        return this.activeSkillCastSerial;
+    }
+
+    public completeActiveSkillRuntime(castSerial: number): boolean {
+        if (!this.activeSkillDefinition || this.activeSkillPhase !== 'casting' || castSerial !== this.activeSkillCastSerial) return false;
+        this.activeSkillPhase = 'cooldown';
+        return true;
+    }
+
+    public cancelActiveSkillRuntime(castSerial: number): boolean {
+        if (this.activeSkillPhase !== 'casting' || castSerial !== this.activeSkillCastSerial) return false;
+        this.activeSkillPhase = this.activeSkillCooldownRemainingMs > 0 ? 'cooldown' : 'ready';
+        return true;
+    }
+
+    public applyRemoteActiveSkillRuntime(phase: ActiveSkillPhase, cooldownRemainingMs: number, castSerial: number) {
+        if (!this.activeSkillDefinition) return;
+        if (this.activeSkillPhase === 'casting' && phase !== 'casting') {
+            this.clearActiveSkillTimers();
+            if (this.sprite) this.scene.tweens.killTweensOf(this.sprite);
+            this.scene.tweens.killTweensOf(this.shadow);
+            this.duckxelAttackPlaying = false;
+            if (this.sprite) this.sprite.y = -7;
+            this.shadow.setScale(1);
+            this.restoreDuckxelIdleFrame();
+        }
+        this.activeSkillPhase = phase;
+        this.activeSkillCooldownRemainingMs = Phaser.Math.Clamp(cooldownRemainingMs, 0, this.activeSkillDefinition.cooldownMs);
+        this.activeSkillCastSerial = Math.max(this.activeSkillCastSerial, castSerial);
+    }
+
+    private updateActiveSkillRuntime(delta: number) {
+        if (!this.activeSkillDefinition || this.activeSkillPhase === 'ready') return;
+        this.activeSkillCooldownRemainingMs = Math.max(0, this.activeSkillCooldownRemainingMs - delta);
+        if (this.activeSkillCooldownRemainingMs <= 0 && this.activeSkillPhase !== 'casting') this.activeSkillPhase = 'ready';
+    }
+
+    public castActiveSkill(onImpact: (unit: Unit, definition: ActiveSkillDefinition) => void): boolean {
+        if (!this.activeSkillDefinition || !this.duckxelAssetProfile?.previewActions.skill || !this.sprite) return false;
+        const castSerial = this.beginActiveSkillRuntime();
+        if (castSerial === null) return false;
+        return this.playActiveSkillSequence(castSerial, onImpact);
+    }
+
+    public playRemoteActiveSkillCast(
+        castSerial: number,
+        onImpact: (unit: Unit, definition: ActiveSkillDefinition) => void,
+    ): boolean {
+        if (!Number.isSafeInteger(castSerial) || castSerial <= this.remoteActiveSkillSerial) return false;
+        if (!this.activeSkillDefinition || !this.duckxelAssetProfile?.previewActions.skill || !this.sprite
+            || !this.active || this.state === UnitState.DIE) return false;
+        this.remoteActiveSkillSerial = castSerial;
+        this.activeSkillCastSerial = castSerial;
+        this.activeSkillPhase = 'casting';
+        this.activeSkillCooldownRemainingMs = this.activeSkillDefinition.cooldownMs;
+        return this.playActiveSkillSequence(castSerial, onImpact);
+    }
+
+    private playActiveSkillSequence(
+        castSerial: number,
+        onImpact: (unit: Unit, definition: ActiveSkillDefinition) => void,
+    ): boolean {
+        const definition = this.activeSkillDefinition;
+        const profile = this.duckxelAssetProfile;
+        const skillAction = profile?.previewActions.skill;
+        if (!definition || !profile || !skillAction || !this.sprite) return false;
+
+        this.cancelAttackSequence(false);
+        this.clearActiveSkillTimers();
+        this.duckxelAttackPlaying = true;
+        (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+
+        const targetVector = this.target && this.target.active && this.target.state !== UnitState.DIE
+            ? { x: this.target.x - this.x, y: this.target.y - this.y }
+            : { x: 0, y: this.team === 'blue' ? -1 : 1 };
+        this.duckxelDirection = this.getDuckxelDirection(targetVector.x, targetVector.y);
+        const directionAnimation = skillAction.directions[this.duckxelDirection];
+        const resolvedSkillAnimation = resolveDuckxelDirectionAnimation(
+            profile,
+            'skill',
+            this.duckxelDirection,
+        );
+        if (!directionAnimation || directionAnimation.frameCount <= 0 || !resolvedSkillAnimation) {
+            this.cancelActiveSkillRuntime(castSerial);
+            this.duckxelAttackPlaying = false;
+            return false;
+        }
+
+        const frameDuration = Math.max(70, Math.round(1000 / Math.max(1, directionAnimation.fps)));
+        const impactFrame = Phaser.Math.Clamp(
+            definition.impactFrameByDirection[this.duckxelDirection],
+            0,
+            directionAnimation.frameCount - 1,
+        );
+        const timing = definition.timingByDirection[this.duckxelDirection];
+        const impactAtMs = timing?.impactMs ?? impactFrame * frameDuration;
+        const totalDurationMs = timing?.totalMs ?? directionAnimation.frameCount * frameDuration;
+        const baseSpriteY = -7;
+        const startX = this.x;
+        const startY = this.y;
+        const landing = this.getActiveSkillLandingPoint(
+            targetVector.x,
+            targetVector.y,
+            definition.forwardDistance,
+        );
+        const motion = { progress: 0 };
+
+        if (this.sprite) this.scene.tweens.killTweensOf(this.sprite);
+        this.scene.tweens.killTweensOf(this.shadow);
+        this.sprite.y = baseSpriteY;
+        this.activeSkillAirborne = true;
+        this.activeSkillMotionTween?.stop();
+        this.activeSkillMotionTween = this.scene.tweens.add({
+            targets: motion,
+            progress: 1,
+            duration: impactAtMs,
+            ease: 'Linear',
+            onUpdate: () => {
+                if (!this.isCurrentActiveSkillCast(castSerial) || !this.sprite) return;
+                const progress = Phaser.Math.Clamp(motion.progress, 0, 1);
+                const travelProgress = Phaser.Math.Easing.Sine.InOut(progress);
+                this.x = Phaser.Math.Linear(startX, landing.x, travelProgress);
+                this.y = Phaser.Math.Linear(startY, landing.y, travelProgress);
+
+                let elevation: number;
+                if (progress < 0.42) {
+                    elevation = Phaser.Math.Easing.Cubic.Out(progress / 0.42);
+                } else if (progress < 0.66) {
+                    elevation = 1;
+                } else {
+                    elevation = 1 - Phaser.Math.Easing.Cubic.In((progress - 0.66) / 0.34);
+                }
+                this.sprite.y = baseSpriteY - definition.liftHeight * elevation;
+                this.shadow.setScale(Phaser.Math.Linear(1, 0.46, elevation));
+                this.shadow.setAlpha(Phaser.Math.Linear(
+                    this.duckxelBattleProfile?.shadow.alpha ?? 0.28,
+                    0.07,
+                    elevation,
+                ));
+                (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0).updateFromGameObject();
+                this.updateSortDepth();
+            },
+            onComplete: () => {
+                if (!this.isCurrentActiveSkillCast(castSerial) || !this.sprite) return;
+                this.x = landing.x;
+                this.y = landing.y;
+                this.sprite.y = baseSpriteY;
+                this.shadow.setScale(1);
+                this.shadow.setAlpha(this.duckxelBattleProfile?.shadow.alpha ?? 0.28);
+                this.activeSkillAirborne = false;
+                this.activeSkillMotionTween = null;
+                (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0).updateFromGameObject();
+                this.updateSortDepth();
+            },
+        });
+
+        for (let frame = 0; frame < directionAnimation.frameCount; frame += 1) {
+            const frameAtMs = frame <= impactFrame
+                ? Math.round((frame / Math.max(1, impactFrame)) * impactAtMs)
+                : Math.round(impactAtMs + ((frame - impactFrame) / Math.max(1, directionAnimation.frameCount - 1 - impactFrame)) * (totalDurationMs - impactAtMs));
+            this.activeSkillTimers.push(this.scene.time.delayedCall(frameAtMs, () => {
+                if (!this.isCurrentActiveSkillCast(castSerial) || !this.sprite) return;
+                const frameKey = `${profile.texturePrefix}_skill_${this.duckxelDirection}_${frame}`;
+                if (!this.scene.textures.exists(frameKey)) return;
+                this.sprite.setTexture(frameKey);
+                this.sprite.setFlipX(resolvedSkillAnimation.flipX);
+                const displaySize = this.getDuckxelDisplaySize();
+                this.sprite.setDisplaySize(displaySize, displaySize);
+                this.sprite.setScale(this.spriteBaseScale);
+            }));
+        }
+
+        this.activeSkillTimers.push(this.scene.time.delayedCall(impactAtMs, () => {
+            if (!this.isCurrentActiveSkillCast(castSerial)) return;
+            this.x = landing.x;
+            this.y = landing.y;
+            this.activeSkillAirborne = false;
+            this.activeSkillMotionTween?.stop();
+            this.activeSkillMotionTween = null;
+            if (this.sprite) this.sprite.y = baseSpriteY;
+            this.shadow.setScale(1);
+            this.shadow.setAlpha(this.duckxelBattleProfile?.shadow.alpha ?? 0.28);
+            (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0).updateFromGameObject();
+            onImpact(this, definition);
+            if (!this.sprite) return;
+            this.scene.tweens.add({
+                targets: this.sprite,
+                scaleX: this.spriteBaseScale * 1.14,
+                scaleY: this.spriteBaseScale * 0.82,
+                duration: 72,
+                yoyo: true,
+                ease: 'Cubic.Out',
+            });
+        }));
+
+        this.activeSkillTimers.push(this.scene.time.delayedCall(totalDurationMs, () => {
+            if (!this.isCurrentActiveSkillCast(castSerial)) return;
+            this.completeActiveSkillRuntime(castSerial);
+            this.duckxelAttackPlaying = false;
+            this.restoreDuckxelIdleFrame();
+            this.state = UnitState.IDLE;
+            this.acquisitionTimer = 0;
+            this.retargetTimer = 0;
+            this.clearActiveSkillTimers();
+        }));
+        return true;
+    }
+
+    private getActiveSkillLandingPoint(directionX: number, directionY: number, distance: number) {
+        const fallbackY = this.team === 'blue' ? -1 : 1;
+        const length = Math.hypot(directionX, directionY);
+        const unitX = length > 0.001 ? directionX / length : 0;
+        const unitY = length > 0.001 ? directionY / length : fallbackY;
+        const clampPoint = (travel: number) => ({
+            x: Phaser.Math.Clamp(this.x + unitX * travel, 18, CONSTANTS.SCREEN_WIDTH - 18),
+            y: Phaser.Math.Clamp(this.y + unitY * travel, 24, CONSTANTS.ARENA.UI_START - 38),
+        });
+
+        const desired = clampPoint(distance);
+        if (!this.gameMap || typeof this.gameMap.isWalkable !== 'function') return desired;
+        if (this.gameMap.isWalkable(desired.x, desired.y)) return desired;
+
+        for (let step = 7; step >= 0; step -= 1) {
+            const candidate = clampPoint(distance * (step / 8));
+            if (this.gameMap.isWalkable(candidate.x, candidate.y)) return candidate;
+        }
+        return typeof this.gameMap.projectToWalkable === 'function'
+            ? this.gameMap.projectToWalkable(desired.x, desired.y)
+            : { x: this.x, y: this.y };
+    }
+
+    private isCurrentActiveSkillCast(castSerial: number) {
+        return this.active
+            && this.state !== UnitState.DIE
+            && this.activeSkillPhase === 'casting'
+            && this.activeSkillCastSerial === castSerial;
+    }
+
+    private cancelActiveSkillCast() {
+        if (this.activeSkillPhase !== 'casting') return;
+        const castSerial = this.activeSkillCastSerial;
+        this.clearActiveSkillTimers();
+        if (this.sprite) this.scene.tweens.killTweensOf(this.sprite);
+        this.scene.tweens.killTweensOf(this.shadow);
+        this.activeSkillMotionTween?.stop();
+        this.activeSkillMotionTween = null;
+        this.activeSkillAirborne = false;
+        this.cancelActiveSkillRuntime(castSerial);
+        this.duckxelAttackPlaying = false;
+        if (this.sprite) this.sprite.y = -7;
+        this.shadow.setScale(1);
+        this.shadow.setAlpha(this.duckxelBattleProfile?.shadow.alpha ?? 0.28);
+        this.clampPosition();
+        (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0).updateFromGameObject();
+        this.restoreDuckxelIdleFrame();
+    }
+
+    private clearActiveSkillTimers() {
+        for (const timer of this.activeSkillTimers) timer.remove(false);
+        this.activeSkillTimers = [];
+        this.activeSkillMotionTween?.stop();
+        this.activeSkillMotionTween = null;
+        this.activeSkillAirborne = false;
+    }
+
     // Duck.xel combat perception runs independently from movement/attack state.
-    // This lets a nearby unit preempt a tower target even after tower combat starts.
+    // A tower remains a soft fallback until the first attack is actually committed.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     private updateCombatPerception(entityManager: any) {
         if (!this.duckxelBattleProfile || !entityManager) return;
@@ -868,6 +1282,7 @@ export default class Unit extends Phaser.GameObjects.Container {
                 sameLanePenalty: targeting.sameLanePenalty,
                 bridgeCrossLaneAllowed: targeting.bridgeCrossLaneAllowed,
                 bridgeEngagementRange: targeting.bridgeEngagementRange,
+                preserveCurrentTower: this.towerTargetCommitted,
                 getRouteDistance: (target) => this.getTravelCostTo(target),
                 getBridgeCorridor: (target) => this.gameMap?.getBridgeCorridorLane?.(target.x, target.y) ?? null,
                 getArenaSide: (target) => this.gameMap?.getArenaSide?.(target.y) ?? 0,
@@ -916,16 +1331,36 @@ export default class Unit extends Phaser.GameObjects.Container {
         }
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    private prepareCommittedAttack(entityManager: any) {
+        const attackTarget = this.target;
+        if (!attackTarget || !this.isValidTarget()) return false;
+
+        if (attackTarget.isTower && !this.towerTargetCommitted) {
+            const canNoticeUnits = this.duckxelBattleProfile?.targeting.policy !== 'building-only';
+            if (canNoticeUnits) {
+                this.findTarget(entityManager);
+                if (this.target !== attackTarget) return false;
+            }
+
+            if (!this.isValidTarget() || !this.isInAttackRange(true)) return false;
+            this.towerTargetCommitted = true;
+        }
+
+        return true;
+    }
+
     private setTarget(target: Unit | null) {
         if (this.target === target) return;
         const wasAttacking = this.state === UnitState.ATTACK;
         if (this.target && this.entityManagerRef) {
             this.entityManagerRef.releaseAttackSlot?.(this);
         }
-        this.target = target;
         if (this.pendingGameplayAttack && this.pendingGameplayAttack.target !== target) {
-            this.pendingGameplayAttack = null;
+            this.cancelAttackSequence();
         }
+        this.towerTargetCommitted = false;
+        this.target = target;
         this.targetLockTimer = target ? (this.duckxelBattleProfile?.targeting.lockDuration ?? 430) : 0;
         this.retargetTimer = target ? Math.min(this.duckxelBattleProfile?.targeting.scanInterval ?? 320, 260) : 0;
         this.firstHitPending = Boolean(target);
@@ -1214,6 +1649,7 @@ export default class Unit extends Phaser.GameObjects.Container {
 
     private performAttack() {
         if (!this.target) return;
+        const attackSequenceId = ++this.attackSequenceId;
         this.hitCount++;
 
         this.scene.events.emit('unitAttack', {
@@ -1225,18 +1661,18 @@ export default class Unit extends Phaser.GameObjects.Container {
         const teamFx = Unit.getPalette(this.team).fx;
 
         if (this.isDuckxelTestUnit && this.stats.attackType === 'melee') {
-            this.playDuckxelMeleeAttack(this.target, teamFx);
+            this.playDuckxelMeleeAttack(this.target, teamFx, attackSequenceId);
             return;
         }
 
         if (this.stats.attackType === 'ranged' || this.stats.attackType === 'splash') {
             if (this.unitKey === 'spear_goblin') {
-                this.playSpearGoblinAttack(this.target, teamFx);
+                this.playSpearGoblinAttack(this.target, teamFx, attackSequenceId);
                 return;
             }
 
             if (this.duckxelBattleProfile) {
-                this.playDuckxelProjectileAttack(this.target, teamFx);
+                this.playDuckxelProjectileAttack(this.target, teamFx, attackSequenceId);
                 return;
             }
 
@@ -1321,13 +1757,29 @@ export default class Unit extends Phaser.GameObjects.Container {
         }
     }
 
-    private scheduleGameplayAttack(kind: 'melee' | 'projectile', target: Unit, delay: number, color: number) {
+    private scheduleGameplayAttack(
+        kind: 'melee' | 'projectile',
+        target: Unit,
+        delay: number,
+        color: number,
+        sequenceId: number,
+    ) {
         this.pendingGameplayAttack = {
             kind,
             target,
             remaining: Math.max(0, delay),
             color,
+            sequenceId,
         };
+    }
+
+    private cancelAttackSequence(restoreIdle = true) {
+        this.attackSequenceId += 1;
+        this.pendingGameplayAttack = null;
+        this.duckxelAttackPlaying = false;
+        if (!restoreIdle || this.isRiverJumping) return;
+        if (this.sprite) this.scene.tweens.killTweensOf(this.sprite);
+        this.restoreDuckxelIdleFrame();
     }
 
     private updatePendingGameplayAttack(delta: number) {
@@ -1336,6 +1788,7 @@ export default class Unit extends Phaser.GameObjects.Container {
         pending.remaining -= delta;
         if (pending.remaining > 0) return;
         this.pendingGameplayAttack = null;
+        if (pending.sequenceId !== this.attackSequenceId) return;
 
         const target = pending.target;
         if (!this.active || this.state === UnitState.DIE) return;
@@ -1383,7 +1836,17 @@ export default class Unit extends Phaser.GameObjects.Container {
                 && !this.target.isTower
                 && this.isValidTarget(),
             );
-            if (shouldRetarget && canRetarget && attackerIsRelevant && !currentTargetInRange && !hasCommittedUnitTarget) {
+            const hasCommittedTowerTarget = Boolean(
+                this.towerTargetCommitted
+                && this.target?.isTower
+                && this.isValidTarget(),
+            );
+            if (shouldRetarget
+                && canRetarget
+                && attackerIsRelevant
+                && !currentTargetInRange
+                && !hasCommittedUnitTarget
+                && !hasCommittedTowerTarget) {
                 this.setTarget(attacker);
                 this.state = UnitState.CHASE;
             }
@@ -1417,8 +1880,10 @@ export default class Unit extends Phaser.GameObjects.Container {
 
     private die() {
         this.stats.hp = 0;
+        this.cancelActiveSkillCast();
+        this.cancelAttackSequence(false);
+        this.setTarget(null);
         this.state = UnitState.DIE;
-        this.pendingGameplayAttack = null;
 
         const body = this.body as Phaser.Physics.Arcade.Body;
         body.enable = false;
@@ -1832,6 +2297,7 @@ export default class Unit extends Phaser.GameObjects.Container {
     private updateDuckxelWalkFrame(delta: number, velocityX: number, velocityY: number, moving: boolean) {
         if (!this.sprite) return;
         if (this.duckxelAttackPlaying) return;
+        if (this.remoteElevation > 0) return;
         if (this.isRiverJumping) return;
         if (!this.duckxelAssetProfile) return;
 
@@ -1885,7 +2351,7 @@ export default class Unit extends Phaser.GameObjects.Container {
         return `${vertical}-${horizontal}` as DuckxelDirection;
     }
 
-    private playDuckxelMeleeAttack(target: Unit, color: number) {
+    private playDuckxelMeleeAttack(target: Unit, color: number, sequenceId: number) {
         if (!this.sprite) return;
         if (!this.duckxelAssetProfile) return;
 
@@ -1895,10 +2361,11 @@ export default class Unit extends Phaser.GameObjects.Container {
         const frameCount = profile.attackFrameCounts[this.duckxelDirection];
         const frameDuration = this.duckxelBattleProfile?.attack.frameDuration ?? 90;
         const hitFrame = Math.min(this.duckxelBattleProfile?.attack.hitFrame ?? 2, frameCount - 1);
-        this.scheduleGameplayAttack('melee', target, hitFrame * frameDuration, color);
+        this.scheduleGameplayAttack('melee', target, hitFrame * frameDuration, color, sequenceId);
 
         for (let frame = 0; frame < frameCount; frame++) {
             this.scene.time.delayedCall(frame * frameDuration, () => {
+                if (sequenceId !== this.attackSequenceId) return;
                 if (!this.active || !this.sprite || this.state === UnitState.DIE) return;
                 const frameKey = `${profile.texturePrefix}_attack_${this.duckxelDirection}_${frame}`;
                 if (!this.scene.textures.exists(frameKey)) return;
@@ -1910,13 +2377,14 @@ export default class Unit extends Phaser.GameObjects.Container {
         }
 
         this.scene.time.delayedCall(frameCount * frameDuration, () => {
+            if (sequenceId !== this.attackSequenceId) return;
             this.duckxelAttackPlaying = false;
             this.duckxelFrameIndex = 0;
             this.duckxelFrameTimer = 0;
         });
     }
 
-    private playDuckxelRangedAttack(target: Unit, color: number) {
+    private playDuckxelRangedAttack(target: Unit, color: number, sequenceId: number) {
         if (!this.sprite) return;
         if (!this.duckxelAssetProfile) {
             this.playSpearThrowMotion();
@@ -1935,6 +2403,7 @@ export default class Unit extends Phaser.GameObjects.Container {
         const frameDuration = this.duckxelBattleProfile?.attack.frameDuration ?? 75;
         for (let frame = 0; frame < frameCount; frame++) {
             this.scene.time.delayedCall(frame * frameDuration, () => {
+                if (sequenceId !== this.attackSequenceId) return;
                 if (!this.active || !this.sprite || this.state === UnitState.DIE) return;
                 const frameKey = `${profile.texturePrefix}_attack_${this.duckxelDirection}_${frame}`;
                 if (!this.scene.textures.exists(frameKey)) return;
@@ -1946,6 +2415,7 @@ export default class Unit extends Phaser.GameObjects.Container {
         }
 
         this.scene.time.delayedCall(Math.max(130, frameCount * frameDuration), () => {
+            if (sequenceId !== this.attackSequenceId) return;
             this.duckxelAttackPlaying = false;
             this.duckxelFrameIndex = 0;
             this.duckxelFrameTimer = 0;
@@ -1961,6 +2431,7 @@ export default class Unit extends Phaser.GameObjects.Container {
 
         if (this.unitKey === 'spear_goblin') {
             this.scene.time.delayedCall(35, () => {
+                if (sequenceId !== this.attackSequenceId) return;
                 if (!this.active || this.state === UnitState.DIE) return;
                 this.playSpearThrowMotion();
             });
@@ -1969,14 +2440,15 @@ export default class Unit extends Phaser.GameObjects.Container {
         }
     }
 
-    private playDuckxelProjectileAttack(target: Unit, color: number) {
+    private playDuckxelProjectileAttack(target: Unit, color: number, sequenceId: number) {
         const frameDuration = this.duckxelBattleProfile?.attack.frameDuration ?? 90;
         const hitFrame = this.duckxelBattleProfile?.attack.hitFrame ?? 1;
         const launchDelay = Math.max(45, hitFrame * frameDuration);
         this.duckxelAttackPlaying = true;
-        this.scheduleGameplayAttack('projectile', target, launchDelay, color);
+        this.scheduleGameplayAttack('projectile', target, launchDelay, color, sequenceId);
 
         this.scene.time.delayedCall(launchDelay + 190, () => {
+            if (sequenceId !== this.attackSequenceId) return;
             this.duckxelAttackPlaying = false;
             this.restoreDuckxelIdleFrame();
         });
@@ -2148,16 +2620,17 @@ export default class Unit extends Phaser.GameObjects.Container {
         });
     }
 
-    private playSpearGoblinAttack(target: Unit, color: number) {
-        this.playDuckxelRangedAttack(target, color);
+    private playSpearGoblinAttack(target: Unit, color: number, sequenceId: number) {
+        this.playDuckxelRangedAttack(target, color, sequenceId);
         this.playHeroAttackEffect(target.x, target.y, color);
         this.pulseAttackGlow(color);
         const frameDuration = this.duckxelBattleProfile?.attack.frameDuration ?? 75;
         const hitFrame = this.duckxelBattleProfile?.attack.hitFrame ?? 1;
         const launchDelay = Math.max(75, hitFrame * frameDuration + 30);
-        this.scheduleGameplayAttack('projectile', target, launchDelay, color);
+        this.scheduleGameplayAttack('projectile', target, launchDelay, color, sequenceId);
 
         this.scene.time.delayedCall(launchDelay + 130, () => {
+            if (sequenceId !== this.attackSequenceId) return;
             this.duckxelAttackPlaying = false;
             this.restoreDuckxelIdleFrame();
         });
@@ -2168,6 +2641,7 @@ export default class Unit extends Phaser.GameObjects.Container {
         const idleKey = `${this.duckxelAssetProfile.texturePrefix}_${this.duckxelDirection}_0`;
         if (!this.scene.textures.exists(idleKey)) return;
         this.sprite.setTexture(idleKey);
+        this.sprite.setFlipX(false);
         const displaySize = this.getDuckxelDisplaySize();
         this.sprite.setDisplaySize(displaySize, displaySize);
         this.sprite.setScale(this.spriteBaseScale);

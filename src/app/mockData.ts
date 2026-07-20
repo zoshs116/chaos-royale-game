@@ -1,20 +1,39 @@
 import { UNIT_FACTIONS, UNIT_TYPES } from '../data/UnitData';
+import { resolveDevelopmentIdentity } from './identity';
 import type { ClanMember, ClanMessage, ClanRoom, PlayerProfile } from './types';
 
-export const DEFAULT_DECK = ['skeleton_swordsman', 'spear_goblin', 'royal_giant', 'hog_rider', 'duckxel_barbarian', 'duckxel_sword_man', 'stone_cold', 'darae'];
+export const DEFAULT_DECK = ['skeleton_swordsman', 'spear_goblin', 'royal_giant', 'hog_rider', 'duckxel_barbarian', 'duckxel_sword_man', 'duckxel_muradin', 'stone_cold'];
+const developmentIdentity = resolveDevelopmentIdentity();
 
 export const DEFAULT_PROFILE: PlayerProfile = {
-    id: 'local-user-1',
-    name: '카오스로드',
+    id: developmentIdentity.userId,
+    name: developmentIdentity.userId.startsWith('22222222') ? '카오스로드B' : '카오스로드',
     level: 12,
-    trophies: 4580,
-    gold: 12500,
-    gems: 320,
-    wins: 142,
-    losses: 38,
+    trophies: 0,
+    gold: 0,
+    gems: 0,
+    wins: 0,
+    losses: 0,
     avatarUnit: 'stone_cold',
     selectedDeck: DEFAULT_DECK,
+    profileComplete: true,
 };
+
+export function createDefaultProfile(id: string, name = '카오스로드'): PlayerProfile {
+    return {
+        id,
+        name,
+        level: 1,
+        trophies: 0,
+        gold: 0,
+        gems: 0,
+        wins: 0,
+        losses: 0,
+        avatarUnit: 'stone_cold',
+        selectedDeck: [...DEFAULT_DECK],
+        profileComplete: false,
+    };
+}
 
 export const DEFAULT_CLAN: ClanRoom = {
     id: 'clan-local-training',

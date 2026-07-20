@@ -30,6 +30,7 @@ export interface TargetResolverContext<T extends TargetableEntity> {
     sameLanePenalty: number;
     bridgeCrossLaneAllowed: boolean;
     bridgeEngagementRange: number;
+    preserveCurrentTower?: boolean;
     getRouteDistance(target: T): number;
     getBridgeCorridor(target: T): Lane | null;
     getArenaSide(target: T): -1 | 0 | 1;
@@ -37,7 +38,7 @@ export interface TargetResolverContext<T extends TargetableEntity> {
 
 export interface TargetResolution<T extends TargetableEntity> {
     target: T | null;
-    reason: 'current-unit' | 'nearby-unit' | 'visible-unit' | 'tower-fallback' | 'none';
+    reason: 'current-unit' | 'current-tower' | 'nearby-unit' | 'visible-unit' | 'tower-fallback' | 'none';
 }
 
 function isAliveTarget<T extends TargetableEntity>(actor: T, target: T) {
@@ -53,6 +54,10 @@ function maskAllowsUnit<T extends TargetableEntity>(target: T, mask: DuckxelTarg
     if (!mask.units || target.isTower) return false;
     if (target.stats.movementType === 'ground') return mask.ground;
     return mask.air;
+}
+
+function maskAllowsTower<T extends TargetableEntity>(target: T, mask: DuckxelTargetMask) {
+    return mask.towers && target.isTower;
 }
 
 function stableBetter<T extends TargetableEntity>(candidate: T, score: number, current: T | null, currentScore: number) {
@@ -80,6 +85,13 @@ export function resolveCombatTarget<T extends TargetableEntity>(context: TargetR
         && isAliveTarget(actor, currentTarget)
         && maskAllowsUnit(currentTarget, mask)) {
         return { target: currentTarget, reason: 'current-unit' };
+    }
+
+    if (context.preserveCurrentTower
+        && currentTarget
+        && isAliveTarget(actor, currentTarget)
+        && maskAllowsTower(currentTarget, mask)) {
+        return { target: currentTarget, reason: 'current-tower' };
     }
 
     const actorCorridor = context.getBridgeCorridor(actor);

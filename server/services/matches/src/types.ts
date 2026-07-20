@@ -1,5 +1,6 @@
 import type { QueueType } from '../../matchmaking/src';
 import type { MmrUpdate } from '../../mmr/src';
+import type { ProgressionUpdate } from '../../progression/src';
 
 export interface TeamResult {
     teamId: 'blue' | 'red';
@@ -27,6 +28,7 @@ export interface MatchResultResponse {
     matchId: string;
     accepted: boolean;
     resultVersion: number;
+    progressionUpdates?: ProgressionUpdate[];
 }
 
 export interface GetMatchSummaryRequest {
@@ -50,4 +52,5 @@ export interface MatchSummary {
     resultVersion: number;
     acceptedAtUtc: string;
     mmrUpdates: MmrUpdate[];
+    progressionUpdates: ProgressionUpdate[];
 }

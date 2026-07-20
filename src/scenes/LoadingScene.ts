@@ -4,64 +4,19 @@ import { createUISkinTextures } from '../ui/UISkinFactory';
 import { UI_ATLAS_IMAGES, uiAtlasPath } from '../ui/UIAssetManifest';
 import { GAME_FONT, GAME_TITLE_FONT, ko } from '../i18n/ko';
 import { dispatchChaosNavigation } from '../app/bridge';
+import {
+    DUCKXEL_ASSET_PROFILES,
+    DUCKXEL_BATTLE_DIRECTIONS,
+    resolveDuckxelDirectionAnimation,
+} from '../data/DuckxelAnimationCatalog';
 
 const UI_FONT = GAME_FONT;
 const TITLE_FONT = GAME_TITLE_FONT;
-const DUCKXEL_BATTLE_DIRECTIONS = ['north-east', 'north-west', 'south-east', 'south-west'] as const;
-const DUCKXEL_ASSET_PROFILES = [
-    {
-        unitKey: 'duckxel_sword_man',
-        assetFolder: 'sword_man',
-        baseFile: 'sword_man_red.png',
-        walkFrameCounts: { 'north-east': 3, 'north-west': 3, 'south-east': 6, 'south-west': 6 },
-        attackFrameCounts: { 'north-east': 4, 'north-west': 4, 'south-east': 4, 'south-west': 3 },
-    },
-    {
-        unitKey: 'duckxel_barbarian',
-        assetFolder: 'barbarian',
-        baseFile: 'barbarian_red.png',
-        walkFrameCounts: { 'north-east': 6, 'north-west': 2, 'south-east': 6, 'south-west': 6 },
-        attackFrameCounts: { 'north-east': 4, 'north-west': 4, 'south-east': 4, 'south-west': 4 },
-    },
-    {
-        unitKey: 'royal_giant',
-        assetFolder: 'royal_giant',
-        baseFile: 'royal_giant_red.png',
-        walkFrameCounts: { 'north-east': 6, 'north-west': 6, 'south-east': 6, 'south-west': 6 },
-        attackFrameCounts: { 'north-east': 0, 'north-west': 0, 'south-east': 0, 'south-west': 0 },
-    },
-    {
-        unitKey: 'spear_goblin',
-        assetFolder: 'spear_goblin',
-        baseFile: 'spear_goblin_red.png',
-        walkFrameCounts: { 'north-east': 6, 'north-west': 4, 'south-east': 6, 'south-west': 6 },
-        attackFrameCounts: { 'north-east': 4, 'north-west': 4, 'south-east': 3, 'south-west': 4 },
-    },
-    {
-        unitKey: 'skeleton_swordsman',
-        assetFolder: 'skeleton_swordsman',
-        baseFile: 'skeleton_swordsman_red.png',
-        walkFrameCounts: { 'north-east': 3, 'north-west': 3, 'south-east': 6, 'south-west': 6 },
-        attackFrameCounts: { 'north-east': 3, 'north-west': 3, 'south-east': 3, 'south-west': 3 },
-    },
-    {
-        unitKey: 'hog_rider',
-        assetFolder: 'hog_rider',
-        baseFile: 'hog_rider/south-east/frame-00.png',
-        walkFrameCounts: { 'north-east': 6, 'north-west': 6, 'south-east': 5, 'south-west': 5 },
-        attackFrameCounts: { 'north-east': 3, 'north-west': 3, 'south-east': 4, 'south-west': 4 },
-    },
-] as const;
 
 /**
  * Loading scene - loads all sprite assets before entering battle.
  */
 export default class LoadingScene extends Phaser.Scene {
-    private stitchedProgressFill?: Phaser.GameObjects.Image;
-    private stitchedProgressGlow?: Phaser.GameObjects.Image;
-    private stitchedLoadingText?: Phaser.GameObjects.Text;
-    private stitchedUiCreated = false;
-
     constructor() {
         super({ key: 'loading' });
     }
@@ -74,73 +29,52 @@ export default class LoadingScene extends Phaser.Scene {
         this.createLoadingBackdrop(width, height);
 
         this.loadUiAtlasAssets();
-        const loadingKoKeys = this.loadLoadingKoAssets();
-        const loadedLoadingKoKeys = new Set<string>();
-        this.load.on('filecomplete', (key: string) => {
-            if (!loadingKoKeys.includes(key)) return;
-            loadedLoadingKoKeys.add(key);
-            if (loadedLoadingKoKeys.size === loadingKoKeys.length) {
-                this.createStitchedLoadingUi(width, height, cx);
-            }
-        });
         // React now owns non-battle app screens; only battle/loading assets are loaded here.
         this.loadBattleKoAssets();
         this.loadBattleArenaParts();
         this.load.image('battle_arena_royal_valley', 'assets/ui/battle_arena_royal_valley.png');
-        this.load.once('filecomplete-image-battle_arena_royal_valley', () => {
-            const bg = this.add.image(cx, height / 2, 'battle_arena_royal_valley');
-            bg.setDisplaySize(width * 1.18, height * 1.18);
-            bg.setAlpha(0.42);
-            bg.setTint(0x9fb3d8);
-            bg.setDepth(1);
-            this.createLoadingVignette(width, height, 2);
-        });
 
-        const logo = this.createLogo(cx, 302);
+        const logo = this.createLogo(cx, 286);
         logo.setDepth(10);
 
-        const progressFrame = this.add.image(cx, 580, 'ui_elixir_bar').setDepth(10);
-        progressFrame.setDisplaySize(276, 34);
+        this.add.rectangle(cx, 500, 268, 12, 0x111a2b, 1)
+            .setStrokeStyle(2, 0x5f7190, 0.9)
+            .setDepth(10);
 
-        const progressFill = this.add.rectangle(55, 580, 0, 12, 0x4f7dff, 1);
+        const progressFill = this.add.rectangle(cx - 132, 500, 0, 8, 0x71a7ff, 1);
         progressFill.setOrigin(0, 0.5);
         progressFill.setDepth(11);
 
-        const progressGlow = this.add.rectangle(55, 580, 0, 18, 0xb8c4ff, 0.2);
+        const progressGlow = this.add.rectangle(cx - 132, 500, 0, 14, 0xa9c8ff, 0.14);
         progressGlow.setOrigin(0, 0.5);
         progressGlow.setDepth(10);
 
-        const loadingText = this.add.text(cx, 616, ko.loading.loading, {
-            fontSize: '12px',
+        const loadingText = this.add.text(cx, 532, ko.loading.loading, {
+            fontSize: '13px',
             fontFamily: UI_FONT,
             fontStyle: '800',
             color: '#dce2f7',
-            stroke: '#000000',
-            strokeThickness: 1,
         }).setOrigin(0.5).setDepth(10);
 
-        this.tweens.add({
-            targets: loadingText,
-            alpha: 0.48,
-            duration: 900,
-            yoyo: true,
-            repeat: -1,
-            ease: 'Sine.easeInOut',
-        });
-
-        const subtitle = this.add.text(cx, 644, ko.loading.preparing, {
-            fontSize: '13px',
+        const subtitle = this.add.text(cx, 558, ko.loading.preparing, {
+            fontSize: '11px',
             fontFamily: UI_FONT,
             fontStyle: '600',
-            color: '#c4c5d5',
-        }).setOrigin(0.5).setAlpha(0.82).setDepth(10);
+            color: '#8796b0',
+        }).setOrigin(0.5).setDepth(10);
+
+        const percentText = this.add.text(cx, 474, '0%', {
+            fontSize: '11px',
+            fontFamily: UI_FONT,
+            fontStyle: '800',
+            color: '#9fb6db',
+        }).setOrigin(0.5).setDepth(10);
 
         this.load.on('progress', (value: number) => {
-            const fillWidth = 250 * value;
+            const fillWidth = 264 * value;
             progressFill.width = fillWidth;
             progressGlow.width = fillWidth;
-            this.stitchedProgressFill?.setDisplaySize(244 * value, 18);
-            this.stitchedProgressGlow?.setDisplaySize(252 * value, 24);
+            percentText.setText(`${Math.round(value * 100)}%`);
         });
 
         // Unit sprites are generated procedurally in Unit.ts - no pre-loading needed.
@@ -190,7 +124,7 @@ export default class LoadingScene extends Phaser.Scene {
         this.load.image('effect_hit', 'assets/sprites/effect_hit.png');
         this.load.image('effect_spawn', 'assets/sprites/effect_spawn.png');
         this.load.image('unit_seoultech_student_blue', 'assets/sprites/seoultech_student.png');
-        DUCKXEL_ASSET_PROFILES.forEach((profile) => {
+        Object.values(DUCKXEL_ASSET_PROFILES).forEach((profile) => {
             this.load.image(`unit_${profile.unitKey}_red`, `assets/sprites/duckxel/${profile.baseFile}`);
             this.load.image(`portrait_card_${profile.unitKey}`, `assets/sprites/duckxel/${profile.baseFile}`);
 
@@ -210,17 +144,35 @@ export default class LoadingScene extends Phaser.Scene {
                         `assets/sprites/duckxel/${profile.assetFolder}_attack/${direction}/frame-${String(frame).padStart(2, '0')}.png`
                     );
                 }
+
+                const skillDefinition = profile.previewActions.skill;
+                const resolvedSkill = skillDefinition
+                    ? resolveDuckxelDirectionAnimation(profile, 'skill', direction)
+                    : null;
+                if (skillDefinition && resolvedSkill) {
+                    for (let frame = 0; frame < resolvedSkill.directionDefinition.frameCount; frame++) {
+                        this.load.image(
+                            `unit_${profile.unitKey}_skill_${direction}_${frame}`,
+                            `assets/sprites/duckxel/${skillDefinition.folder}/${resolvedSkill.sourceDirection}/frame-${String(frame).padStart(2, '0')}.png`
+                        );
+                    }
+                }
             });
         });
+        for (let frame = 0; frame < 4; frame++) {
+            this.load.image(
+                `vfx_earthbreaker_impact_${frame}`,
+                `assets/sprites/duckxel/muradin_vfx/impact/frame-${String(frame).padStart(2, '0')}.png`
+            );
+        }
 
         this.load.on('complete', () => {
             this.ensureFallbackTextures();
-            subtitle.setText(ko.loading.ready);
-            this.stitchedLoadingText?.setText(ko.loading.ready);
-            progressFill.width = 250;
-            progressGlow.width = 250;
-            this.stitchedProgressFill?.setDisplaySize(244, 18);
-            this.stitchedProgressGlow?.setDisplaySize(252, 24);
+            loadingText.setText(ko.loading.ready);
+            subtitle.setText(ko.loading.starting);
+            percentText.setText('100%');
+            progressFill.width = 264;
+            progressGlow.width = 264;
             this.time.delayedCall(280, () => {
                 const initialScene = this.resolveInitialScene();
                 if (initialScene === 'main-scene') {
@@ -248,12 +200,12 @@ export default class LoadingScene extends Phaser.Scene {
         this.load.start();
     }
 
-    private resolveInitialScene(): 'lobby' | 'deck' | 'shop' | 'clan' | 'main-scene' | 'game-over' {
+    private resolveInitialScene(): 'lobby' | 'deck' | 'clan' | 'main-scene' | 'game-over' {
         if (typeof window === 'undefined') return 'lobby';
         const scene = new URLSearchParams(window.location.search).get('scene');
         if (scene === 'lobby') return 'lobby';
         if (scene === 'deck') return 'deck';
-        if (scene === 'shop') return 'shop';
+        if (scene === 'shop') return 'lobby';
         if (scene === 'clan') return 'clan';
         if (scene === 'battle') return 'main-scene';
         if (scene === 'gameover') return 'game-over';
@@ -268,116 +220,6 @@ export default class LoadingScene extends Phaser.Scene {
         UI_ATLAS_IMAGES.forEach((key) => {
             this.load.image(key, uiAtlasPath(key));
         });
-    }
-
-    private loadLoadingKoAssets() {
-        const keys = [
-            'logo',
-            'chest',
-            'arena_background',
-            'progress_frame',
-            'progress_fill',
-            'progress_glow',
-            'text_plate_empty',
-            'spark_blue',
-            'spark_purple',
-            'spark_white',
-        ];
-        keys.forEach((key) => {
-            this.load.image(`loading_ko_${key}`, `assets/ui/loading_ko/${key}.png`);
-        });
-        return keys.map((key) => `loading_ko_${key}`);
-    }
-
-    private createStitchedLoadingUi(width: number, height: number, cx: number) {
-        if (this.stitchedUiCreated) return;
-        this.stitchedUiCreated = true;
-
-        const baseDepth = 30;
-        const arena = this.add.image(cx, 252, 'loading_ko_arena_background')
-            .setDisplaySize(width * 1.12, 262)
-            .setAlpha(0.92)
-            .setDepth(baseDepth);
-        arena.setTint(0xcbd7ff);
-
-        const upperShade = this.add.rectangle(cx, 0, width, 220, 0x050912, 0.34)
-            .setOrigin(0.5, 0)
-            .setDepth(baseDepth + 1);
-        const lowerShade = this.add.rectangle(cx, 490, width, height - 490, 0x050912, 0.7)
-            .setOrigin(0.5, 0)
-            .setDepth(baseDepth + 1);
-
-        this.add.image(cx, 174, 'loading_ko_logo')
-            .setDisplaySize(292, 86)
-            .setDepth(baseDepth + 4);
-
-        const chest = this.add.image(cx, 390, 'loading_ko_chest')
-            .setDisplaySize(118, 132)
-            .setDepth(baseDepth + 4);
-        this.tweens.add({
-            targets: chest,
-            y: 380,
-            duration: 1200,
-            yoyo: true,
-            repeat: -1,
-            ease: 'Sine.easeInOut',
-        });
-
-        this.add.image(cx, 572, 'loading_ko_progress_frame')
-            .setDisplaySize(284, 39)
-            .setDepth(baseDepth + 4);
-
-        this.stitchedProgressGlow = this.add.image(cx - 122, 572, 'loading_ko_progress_glow')
-            .setOrigin(0, 0.5)
-            .setDisplaySize(0, 24)
-            .setAlpha(0.82)
-            .setDepth(baseDepth + 5);
-        this.stitchedProgressFill = this.add.image(cx - 122, 572, 'loading_ko_progress_fill')
-            .setOrigin(0, 0.5)
-            .setDisplaySize(0, 18)
-            .setDepth(baseDepth + 6);
-
-        this.add.image(cx, 628, 'loading_ko_text_plate_empty')
-            .setDisplaySize(172, 38)
-            .setDepth(baseDepth + 4);
-        this.stitchedLoadingText = this.add.text(cx, 628, ko.loading.loading, {
-            fontSize: '12px',
-            fontFamily: UI_FONT,
-            fontStyle: '900',
-            color: '#eef3ff',
-            stroke: '#050912',
-            strokeThickness: 2,
-        }).setOrigin(0.5).setDepth(baseDepth + 5);
-
-        this.tweens.add({
-            targets: this.stitchedLoadingText,
-            alpha: 0.56,
-            duration: 820,
-            yoyo: true,
-            repeat: -1,
-            ease: 'Sine.easeInOut',
-        });
-
-        const particles = [
-            this.add.image(cx - 98, 404, 'loading_ko_spark_blue').setScale(0.18),
-            this.add.image(cx + 92, 386, 'loading_ko_spark_purple').setScale(0.18),
-            this.add.image(cx + 2, 328, 'loading_ko_spark_white').setScale(0.13),
-        ];
-        particles.forEach((particle, index) => {
-            particle.setDepth(baseDepth + 3).setAlpha(0.58);
-            this.tweens.add({
-                targets: particle,
-                alpha: 0.18,
-                scale: particle.scale + 0.04,
-                duration: 900 + index * 180,
-                yoyo: true,
-                repeat: -1,
-                ease: 'Sine.easeInOut',
-            });
-        });
-
-        upperShade.setBlendMode(Phaser.BlendModes.MULTIPLY);
-        lowerShade.setBlendMode(Phaser.BlendModes.MULTIPLY);
     }
 
     private loadBattleKoAssets() {
@@ -440,77 +282,39 @@ export default class LoadingScene extends Phaser.Scene {
 
     private createLoadingBackdrop(width: number, height: number) {
         const bg = this.add.graphics().setDepth(0);
-        bg.fillGradientStyle(0x101827, 0x101827, 0x070e1d, 0x070e1d, 1);
+        bg.fillGradientStyle(0x111827, 0x111827, 0x070b13, 0x070b13, 1);
         bg.fillRect(0, 0, width, height);
-        bg.fillStyle(0x1e40af, 0.16);
-        bg.fillCircle(64, 220, 170);
-        bg.fillStyle(0x830096, 0.14);
-        bg.fillCircle(width - 24, 410, 190);
-        this.createLoadingVignette(width, height, 3);
-    }
-
-    private createLoadingVignette(width: number, height: number, depth: number) {
-        const shade = this.add.graphics().setDepth(depth);
-        shade.fillGradientStyle(0x0c1322, 0x0c1322, 0x070e1d, 0x070e1d, 0.18, 0.18, 0.98, 1);
-        shade.fillRect(0, 0, width, height);
-        shade.fillStyle(0x000000, 0.18);
-        shade.fillRect(0, 0, width, 92);
-        shade.fillRect(0, height - 120, width, 120);
+        bg.fillStyle(0xffffff, 0.025);
+        for (let y = 96; y < height - 96; y += 48) {
+            bg.fillRect(24, y, width - 48, 1);
+        }
+        bg.lineStyle(1, 0x6f82a6, 0.22);
+        bg.strokeRoundedRect(12, 12, width - 24, height - 24, 14);
     }
 
     private createLogo(x: number, y: number) {
         const container = this.add.container(x, y);
 
-        const glow = this.add.graphics();
-        glow.fillStyle(0xb8c4ff, 0.13);
-        glow.fillEllipse(0, 12, 252, 118);
-        container.add(glow);
-
-        container.add(this.add.text(0, -24, ko.loading.logoTop, {
-            fontSize: '44px',
+        container.add(this.add.text(0, -16, `${ko.loading.logoTop} ${ko.loading.logoBottom}`, {
+            fontSize: '30px',
             fontFamily: TITLE_FONT,
             fontStyle: '900',
             color: '#eef3ff',
-            stroke: '#050912',
-            strokeThickness: 7,
+            stroke: '#0a101c',
+            strokeThickness: 3,
         }).setOrigin(0.5));
 
-        container.add(this.add.text(0, 22, ko.loading.logoBottom, {
-            fontSize: '44px',
-            fontFamily: TITLE_FONT,
-            fontStyle: '900',
-            color: '#b8c4ff',
-            stroke: '#050912',
-            strokeThickness: 7,
+        container.add(this.add.text(0, 24, 'TACTICAL ARENA', {
+            fontSize: '10px',
+            fontFamily: UI_FONT,
+            fontStyle: '700',
+            color: '#8796b0',
         }).setOrigin(0.5));
 
-        const chest = this.add.container(0, 112);
-        const aura = this.add.graphics();
-        aura.fillStyle(0x830096, 0.22);
-        aura.fillEllipse(0, 14, 106, 46);
-        chest.add(aura);
-
-        const body = this.add.graphics();
-        body.fillStyle(0x3f245f, 1);
-        body.fillRoundedRect(-34, -16, 68, 42, 8);
-        body.fillStyle(0x7254a8, 1);
-        body.fillRoundedRect(-28, -26, 56, 22, 8);
-        body.lineStyle(3, 0xfbabff, 0.72);
-        body.strokeRoundedRect(-34, -16, 68, 42, 8);
-        body.strokeRoundedRect(-28, -26, 56, 22, 8);
-        body.fillStyle(0xfbabff, 1);
-        body.fillCircle(0, 4, 8);
-        chest.add(body);
-        container.add(chest);
-
-        this.tweens.add({
-            targets: chest,
-            y: 104,
-            duration: 1300,
-            yoyo: true,
-            repeat: -1,
-            ease: 'Sine.easeInOut',
-        });
+        const divider = this.add.graphics();
+        divider.lineStyle(1, 0x7183a5, 0.5);
+        divider.lineBetween(-86, 52, 86, 52);
+        container.add(divider);
 
         return container;
     }

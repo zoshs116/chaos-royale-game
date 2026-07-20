@@ -6,7 +6,8 @@ export type DuckxelBattleUnitKey =
     | 'spear_goblin'
     | 'skeleton_swordsman'
     | 'royal_giant'
-    | 'hog_rider';
+    | 'hog_rider'
+    | 'duckxel_muradin';
 
 export type TargetPolicy = 'any-nearest' | 'building-only';
 export type DuckxelBattleBehavior = 'melee-combat' | 'ranged-combat' | 'building-ranged' | 'building-jump';
@@ -28,6 +29,9 @@ export interface DuckxelBattleProfile {
     movement: {
         route: DuckxelMovementRoute;
         canChangeLane: boolean;
+        jumpSpeed?: number;
+        jumpCooldown?: number;
+        jumpLandingOffset?: number;
     };
     hpBar: {
         width: number;
@@ -59,6 +63,9 @@ export interface DuckxelBattleProfile {
         rangePadding: number;
         projectileForward?: number;
         projectileLift?: number;
+        projectileSpeed?: number;
+        splashRadius?: number;
+        recoilDistance?: number;
     };
     timing: {
         deployDelay: number;
@@ -182,6 +189,21 @@ export const DUCKXEL_BATTLE_PROFILES: Record<DuckxelBattleUnitKey, DuckxelBattle
         tracking: meleeTracking,
         reaction: combatReaction,
     },
+    duckxel_muradin: {
+        unitKey: 'duckxel_muradin',
+        behavior: 'melee-combat',
+        displaySize: 68,
+        collisionRadius: 14,
+        collisionMass: 1.8,
+        movement: { route: 'ground-bridge', canChangeLane: true },
+        hpBar: { width: 27, y: -21 },
+        shadow: { width: 21, height: 8, y: 10, alpha: 0.28 },
+        targeting: baseAnyTargeting,
+        attack: { frameDuration: 100, hitFrame: 2, rangePadding: 18 },
+        timing: meleeTiming,
+        tracking: meleeTracking,
+        reaction: combatReaction,
+    },
     spear_goblin: {
         unitKey: 'spear_goblin',
         behavior: 'ranged-combat',
@@ -197,7 +219,7 @@ export const DUCKXEL_BATTLE_PROFILES: Record<DuckxelBattleUnitKey, DuckxelBattle
             sameLanePenalty: 125,
             crossLaneCloseRange: 74,
         },
-        attack: { frameDuration: 75, hitFrame: 1, rangePadding: 10, projectileForward: 13, projectileLift: 10 },
+        attack: { frameDuration: 75, hitFrame: 1, rangePadding: 10, projectileForward: 13, projectileLift: 10, projectileSpeed: 390 },
         timing: { deployDelay: CONSTANTS.GAMEPLAY.SPAWN_DELAY, acquisitionDelay: 90, firstHitDelay: 260 },
         tracking: { attackExitPadding: 14, leashDistance: 250, returnToLaneDelay: 520 },
         reaction: combatReaction,
@@ -233,7 +255,7 @@ export const DUCKXEL_BATTLE_PROFILES: Record<DuckxelBattleUnitKey, DuckxelBattle
         hpBar: { width: 32, y: -28 },
         shadow: { width: 28, height: 10, y: 12, alpha: 0.3 },
         targeting: buildingTargeting,
-        attack: { frameDuration: 90, hitFrame: 1, rangePadding: 12, projectileForward: 16, projectileLift: 8 },
+        attack: { frameDuration: 90, hitFrame: 1, rangePadding: 12, projectileForward: 16, projectileLift: 8, projectileSpeed: 260, recoilDistance: 9 },
         timing: { deployDelay: CONSTANTS.GAMEPLAY.SPAWN_DELAY, acquisitionDelay: 120, firstHitDelay: 400 },
         tracking: { attackExitPadding: 18, leashDistance: 0, returnToLaneDelay: 0 },
         tuning: { speedMultiplier: 0.64, attackIntervalMultiplier: 1.35 },
@@ -244,7 +266,7 @@ export const DUCKXEL_BATTLE_PROFILES: Record<DuckxelBattleUnitKey, DuckxelBattle
         displaySize: 68,
         collisionRadius: 14,
         collisionMass: 2.1,
-        movement: { route: 'river-jump', canChangeLane: true },
+        movement: { route: 'river-jump', canChangeLane: true, jumpSpeed: 116, jumpCooldown: 850, jumpLandingOffset: 24 },
         hpBar: { width: 26, y: -20 },
         shadow: { width: 22, height: 8, y: 10, alpha: 0.28 },
         targeting: buildingTargeting,

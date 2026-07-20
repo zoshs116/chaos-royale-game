@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS match_summaries (
     server_build TEXT NOT NULL,
     result_version INTEGER NOT NULL,
     accepted_at_utc TEXT NOT NULL,
-    mmr_updates_json JSONB NOT NULL
+    mmr_updates_json JSONB NOT NULL,
+    progression_updates_json JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 
 CREATE TABLE IF NOT EXISTS replays (
@@ -31,5 +32,15 @@ CREATE TABLE IF NOT EXISTS replays (
 CREATE TABLE IF NOT EXISTS player_ratings (
     player_id TEXT PRIMARY KEY,
     rating INTEGER NOT NULL,
+    updated_at_utc TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS player_progression (
+    player_id TEXT PRIMARY KEY,
+    wins INTEGER NOT NULL DEFAULT 0,
+    losses INTEGER NOT NULL DEFAULT 0,
+    trophies INTEGER NOT NULL DEFAULT 0,
+    gold INTEGER NOT NULL DEFAULT 0,
+    gems INTEGER NOT NULL DEFAULT 0,
     updated_at_utc TEXT NOT NULL
 );

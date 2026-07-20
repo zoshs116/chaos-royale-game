@@ -1,5 +1,6 @@
 import { MmrService } from '../../mmr/src';
 import { ReplayService } from '../../replay/src';
+import { ProgressionService } from '../../progression/src';
 import MatchResultServiceError from './errors';
 import type { MatchResultRequest, MatchResultResponse, MatchSummary } from './types';
 import type { ServerStorage } from '../../../storage';
@@ -8,17 +9,21 @@ export interface MatchResultServiceOptions {
     storage: ServerStorage;
     mmrService?: MmrService;
     replayService?: ReplayService;
+    progressionService?: ProgressionService;
 }
 
 export default class MatchResultService {
     private readonly storage: ServerStorage;
     private readonly mmrService: MmrService;
     private readonly replayService: ReplayService;
+    private readonly progressionService: ProgressionService;
+    private readonly processingMatchIds = new Set<string>();
 
     constructor(options: MatchResultServiceOptions) {
         this.storage = options.storage;
         this.mmrService = options.mmrService ?? new MmrService({ storage: this.storage });
         this.replayService = options.replayService ?? new ReplayService({ storage: this.storage });
+        this.progressionService = options.progressionService ?? new ProgressionService(this.storage);
     }
 
     public async submitResult(request: MatchResultRequest, nowMs: number): Promise<MatchResultResponse> {
@@ -37,62 +42,74 @@ export default class MatchResultService {
             return {
                 matchId: existing.matchId,
                 accepted: true,
-                resultVersion: existing.resultVersion
+                resultVersion: existing.resultVersion,
+                progressionUpdates: existing.progressionUpdates,
             };
         }
+        if (this.processingMatchIds.has(request.matchId)) {
+            throw new MatchResultServiceError('result_in_progress', 409, 'match result is already being processed.');
+        }
+        this.processingMatchIds.add(request.matchId);
 
-        const mmrUpdates = await this.mmrService.applyResult(
-            {
-                winnerTeamId: request.winnerTeamId,
-                teams: request.teams.map((team) => ({
-                    teamId: team.teamId,
-                    playerIds: team.playerIds,
-                    crowns: team.crowns
-                }))
-            },
-            nowMs
-        );
+        try {
+            const mmrUpdates = await this.mmrService.applyResult(
+                {
+                    winnerTeamId: request.winnerTeamId,
+                    teams: request.teams.map((team) => ({
+                        teamId: team.teamId,
+                        playerIds: team.playerIds,
+                        crowns: team.crowns
+                    }))
+                },
+                nowMs
+            );
+            const progressionUpdates = await this.progressionService.applyResult(request, nowMs);
 
-        await this.replayService.upsertReplay(
-            {
+            await this.replayService.upsertReplay(
+                {
+                    matchId: request.matchId,
+                    replayKey: request.replayKey,
+                    initialStateHash: request.initialStateHash,
+                    rngSeed: request.rngSeed,
+                    inputCount: request.inputCount,
+                    startedAtUtc: request.startedAtUtc,
+                    endedAtUtc: request.endedAtUtc,
+                    eventsDigestSha256: request.eventsDigestSha256
+                },
+                nowMs
+            );
+
+            const durationSec = calculateDurationSec(request.startedAtUtc, request.endedAtUtc);
+            const summary: MatchSummary = {
                 matchId: request.matchId,
-                replayKey: request.replayKey,
+                queueType: request.queueType,
+                startedAtUtc: request.startedAtUtc,
+                endedAtUtc: request.endedAtUtc,
+                durationSec,
+                winnerTeamId: request.winnerTeamId,
+                teams: request.teams,
                 initialStateHash: request.initialStateHash,
                 rngSeed: request.rngSeed,
                 inputCount: request.inputCount,
-                startedAtUtc: request.startedAtUtc,
-                endedAtUtc: request.endedAtUtc,
-                eventsDigestSha256: request.eventsDigestSha256
-            },
-            nowMs
-        );
+                eventsDigestSha256: request.eventsDigestSha256,
+                replayKey: request.replayKey,
+                serverBuild: request.serverBuild,
+                resultVersion: 1,
+                acceptedAtUtc: new Date(nowMs).toISOString(),
+                mmrUpdates,
+                progressionUpdates,
+            };
 
-        const durationSec = calculateDurationSec(request.startedAtUtc, request.endedAtUtc);
-        const summary: MatchSummary = {
-            matchId: request.matchId,
-            queueType: request.queueType,
-            startedAtUtc: request.startedAtUtc,
-            endedAtUtc: request.endedAtUtc,
-            durationSec,
-            winnerTeamId: request.winnerTeamId,
-            teams: request.teams,
-            initialStateHash: request.initialStateHash,
-            rngSeed: request.rngSeed,
-            inputCount: request.inputCount,
-            eventsDigestSha256: request.eventsDigestSha256,
-            replayKey: request.replayKey,
-            serverBuild: request.serverBuild,
-            resultVersion: 1,
-            acceptedAtUtc: new Date(nowMs).toISOString(),
-            mmrUpdates
-        };
-
-        await this.storage.upsertMatchSummary(summary);
-        return {
-            matchId: summary.matchId,
-            accepted: true,
-            resultVersion: summary.resultVersion
-        };
+            await this.storage.upsertMatchSummary(summary);
+            return {
+                matchId: summary.matchId,
+                accepted: true,
+                resultVersion: summary.resultVersion,
+                progressionUpdates,
+            };
+        } finally {
+            this.processingMatchIds.delete(request.matchId);
+        }
     }
 
     public async getSummary(matchId: string): Promise<MatchSummary | null> {

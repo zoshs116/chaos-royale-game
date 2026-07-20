@@ -26,7 +26,14 @@ function fakeTarget(order: number, team: 'blue' | 'red', x: number, y: number, l
     };
 }
 
-function resolve(actor: FakeTarget, currentTarget: FakeTarget | null, candidates: FakeTarget[], mask: DuckxelTargetMask, policy: 'any-nearest' | 'building-only') {
+function resolve(
+    actor: FakeTarget,
+    currentTarget: FakeTarget | null,
+    candidates: FakeTarget[],
+    mask: DuckxelTargetMask,
+    policy: 'any-nearest' | 'building-only',
+    preserveCurrentTower = false,
+) {
     return resolveCombatTarget({
         actor,
         currentTarget,
@@ -39,6 +46,7 @@ function resolve(actor: FakeTarget, currentTarget: FakeTarget | null, candidates
         sameLanePenalty: 140,
         bridgeCrossLaneAllowed: true,
         bridgeEngagementRange: 92,
+        preserveCurrentTower,
         getRouteDistance: (target) => Math.hypot(target.x - actor.x, target.y - actor.y),
         getBridgeCorridor: () => null,
         getArenaSide: (target) => target.y < 300 ? -1 : 1,
@@ -56,6 +64,15 @@ export function runCombatInvariantChecks(): string[] {
     }
     if (resolve(actor, fallbackTower, [actor, fallbackTower, nearbyEnemy], towerOnlyMask, 'building-only') !== fallbackTower) {
         failures.push('building-only unit must ignore enemy units');
+    }
+    if (resolve(actor, fallbackTower, [actor, fallbackTower, nearbyEnemy], anyGroundMask, 'any-nearest', true) !== fallbackTower) {
+        failures.push('a committed tower target must remain selected while it is alive');
+    }
+
+    const destroyedCommittedTower = fakeTarget(31, 'red', 80, 100, 'left', true);
+    destroyedCommittedTower.stats.hp = 0;
+    if (resolve(actor, destroyedCommittedTower, [actor, destroyedCommittedTower, nearbyEnemy], anyGroundMask, 'any-nearest', true) !== nearbyEnemy) {
+        failures.push('a destroyed committed tower must release the lock and allow a new eligible unit target');
     }
 
     const fartherCurrentEnemy = fakeTarget(21, 'red', 82, 355, 'left');

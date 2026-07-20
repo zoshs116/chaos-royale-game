@@ -1,20 +1,7 @@
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import { saveProfile } from './profileRepository';
 import { disabledResult, supabase, toSupabaseError, type SupabaseResult } from './supabaseClient';
 import type { ClanInvite, ClanMember, ClanMessage, ClanRoom, FriendlyRoom, PlayerProfile, Team } from './types';
-
-type ProfileRow = {
-    id: string;
-    nickname: string;
-    avatar_unit: string;
-    level: number;
-    trophies: number;
-    gold: number;
-    gems: number;
-    wins: number;
-    losses: number;
-    selected_deck: string[];
-    updated_at?: string;
-};
 
 type ClanRow = {
     id: string;
@@ -31,7 +18,6 @@ type ClanMemberRow = {
     level?: number;
     trophies?: number;
     role: 'owner' | 'member' | 'guest';
-    online: boolean;
     ready: boolean;
     joined_at?: string;
 };
@@ -40,8 +26,11 @@ type ClanInviteRow = {
     id: string;
     clan_id: string;
     from_user_id: string;
+    to_user_id: string;
     to_nickname: string;
-    status: 'pending' | 'accepted' | 'declined';
+    clan_name: string;
+    from_user_name: string;
+    status: ClanInvite['status'];
     created_at: string;
 };
 
@@ -65,6 +54,10 @@ type FriendlyRoomRow = {
     host_team: Team;
     guest_team: Team;
     status: FriendlyRoom['status'];
+    host_ready?: boolean;
+    guest_ready?: boolean;
+    revision?: number;
+    expires_at?: string;
     created_at: string;
 };
 
@@ -75,19 +68,6 @@ export interface RemoteClanState {
     messages: ClanMessage[];
     friendlyRoom: FriendlyRoom | null;
 }
-
-const toProfileRow = (profile: PlayerProfile): ProfileRow => ({
-    id: profile.id,
-    nickname: profile.name,
-    avatar_unit: profile.avatarUnit,
-    level: profile.level,
-    trophies: profile.trophies,
-    gold: profile.gold,
-    gems: profile.gems,
-    wins: profile.wins,
-    losses: profile.losses,
-    selected_deck: profile.selectedDeck,
-});
 
 const fromClanRow = (row: ClanRow): ClanRoom => ({
     id: row.id,
@@ -102,7 +82,7 @@ const fromMemberRow = (row: ClanMemberRow): ClanMember => ({
     name: row.nickname ?? row.profile_id,
     level: row.level ?? 1,
     trophies: row.trophies ?? 0,
-    online: row.online,
+    online: false,
     ready: row.ready,
     role: row.role,
 });
@@ -111,7 +91,10 @@ const fromInviteRow = (row: ClanInviteRow): ClanInvite => ({
     id: row.id,
     clanId: row.clan_id,
     fromUserId: row.from_user_id,
+    fromUserName: row.from_user_name,
+    toUserId: row.to_user_id,
     toNickname: row.to_nickname,
+    clanName: row.clan_name,
     status: row.status,
     createdAt: new Date(row.created_at).getTime(),
 });
@@ -136,6 +119,10 @@ const fromFriendlyRoomRow = (row: FriendlyRoomRow, localUserId: string): Friendl
         localTeam: isHost ? row.host_team : row.guest_team,
         opponentTeam: isHost ? row.guest_team : row.host_team,
         status: row.status,
+        hostReady: row.host_ready ?? true,
+        guestReady: row.guest_ready ?? row.status !== 'requested',
+        revision: row.revision ?? 1,
+        expiresAt: row.expires_at ? new Date(row.expires_at).getTime() : undefined,
         createdAt: new Date(row.created_at).getTime(),
     };
 };
@@ -143,37 +130,20 @@ const fromFriendlyRoomRow = (row: FriendlyRoomRow, localUserId: string): Friendl
 const requireClient = () => supabase;
 
 export async function upsertRemoteProfile(profile: PlayerProfile): Promise<SupabaseResult<null>> {
-    const client = requireClient();
-    if (!client) return disabledResult();
-
-    const { error } = await client.from('profiles').upsert(toProfileRow(profile), { onConflict: 'id' });
-    if (error) return toSupabaseError(`프로필 저장 실패: ${error.message}`, error);
+    const result = await saveProfile(profile);
+    if (!result.ok) return result;
     return { ok: true, data: null };
 }
 
-export async function createRemoteClan(profile: PlayerProfile, name: string): Promise<SupabaseResult<ClanRoom>> {
+export async function createRemoteClan(_profile: PlayerProfile, name: string): Promise<SupabaseResult<ClanRoom>> {
     const client = requireClient();
     if (!client) return disabledResult();
 
-    const clanRow = {
-        name,
-        owner_id: profile.id,
-        invite_code: `CHAOS-${Math.floor(1000 + Math.random() * 9000)}`,
-    };
-    const { data: clan, error: clanError } = await client.from('clans').insert(clanRow).select('*').single<ClanRow>();
+    const { data: clan, error: clanError } = await client.rpc('create_clan', {
+        clan_name: name,
+    }) as { data: ClanRow | null; error: { message: string } | null };
     if (clanError) return toSupabaseError(`클랜 생성 실패: ${clanError.message}`, clanError);
-
-    const { error: memberError } = await client.from('clan_members').upsert({
-        clan_id: clan.id,
-        profile_id: profile.id,
-        nickname: profile.name,
-        level: profile.level,
-        trophies: profile.trophies,
-        role: 'owner',
-        online: true,
-        ready: true,
-    });
-    if (memberError) return toSupabaseError(`클랜 멤버 등록 실패: ${memberError.message}`, memberError);
+    if (!clan) return toSupabaseError('클랜 생성 결과가 없습니다.');
 
     return { ok: true, data: fromClanRow(clan) };
 }
@@ -182,34 +152,20 @@ export async function createRemoteInvite(clan: ClanRoom, profile: PlayerProfile,
     const client = requireClient();
     if (!client) return disabledResult();
 
-    const { data: targetProfile, error: profileError } = await client
-        .from('profiles')
-        .select('id,nickname')
-        .eq('nickname', nickname)
-        .maybeSingle<{ id: string; nickname: string }>();
-    if (profileError) return toSupabaseError(`초대 대상 확인 실패: ${profileError.message}`, profileError);
-    if (!targetProfile) return toSupabaseError(`${nickname} 님은 아직 가입된 유저가 아닙니다.`);
-
-    const { data, error } = await client
-        .from('clan_invites')
-        .insert({
-            clan_id: clan.id,
-            from_user_id: profile.id,
-            to_nickname: nickname,
-            status: 'pending',
-        })
-        .select('*')
-        .single<ClanInviteRow>();
+    void clan;
+    void profile;
+    const { data, error } = await client.rpc('create_clan_invite', { target_nickname: nickname.trim() });
     if (error) return toSupabaseError(`초대 생성 실패: ${error.message}`, error);
-
-    return { ok: true, data: fromInviteRow(data) };
+    const row = (Array.isArray(data) ? data[0] : data) as ClanInviteRow | null;
+    if (!row) return toSupabaseError('초대 생성 결과가 없습니다.');
+    return { ok: true, data: fromInviteRow(row) };
 }
 
 export async function cancelRemoteInvite(inviteId: string): Promise<SupabaseResult<null>> {
     const client = requireClient();
     if (!client) return disabledResult();
 
-    const { error } = await client.from('clan_invites').delete().eq('id', inviteId);
+    const { error } = await client.rpc('cancel_clan_invite', { target_invite_id: inviteId });
     if (error) return toSupabaseError(`초대 취소 실패: ${error.message}`, error);
     return { ok: true, data: null };
 }
@@ -218,29 +174,26 @@ export async function acceptRemoteInvite(invite: ClanInvite): Promise<SupabaseRe
     const client = requireClient();
     if (!client) return disabledResult();
 
-    const { data: targetProfile, error: profileError } = await client
-        .from('profiles')
-        .select('id,nickname,level,trophies')
-        .eq('nickname', invite.toNickname)
-        .maybeSingle<{ id: string; nickname: string; level: number; trophies: number }>();
-    if (profileError) return toSupabaseError(`초대 수락 유저 확인 실패: ${profileError.message}`, profileError);
-    if (!targetProfile) return toSupabaseError(`${invite.toNickname} 님의 프로필이 없습니다.`);
+    const { error } = await client.rpc('accept_clan_invite', { invite_id: invite.id });
+    if (error) return toSupabaseError(`초대 수락 실패: ${error.message}`, error);
 
-    const { error: inviteError } = await client.from('clan_invites').update({ status: 'accepted' }).eq('id', invite.id);
-    if (inviteError) return toSupabaseError(`초대 상태 변경 실패: ${inviteError.message}`, inviteError);
+    return { ok: true, data: null };
+}
 
-    const { error: memberError } = await client.from('clan_members').upsert({
-        clan_id: invite.clanId,
-        profile_id: targetProfile.id,
-        nickname: targetProfile.nickname,
-        level: targetProfile.level,
-        trophies: targetProfile.trophies,
-        role: 'member',
-        online: true,
-        ready: false,
-    });
-    if (memberError) return toSupabaseError(`멤버 입장 처리 실패: ${memberError.message}`, memberError);
+export async function declineRemoteInvite(inviteId: string): Promise<SupabaseResult<null>> {
+    const client = requireClient();
+    if (!client) return disabledResult();
+    const { error } = await client.rpc('decline_clan_invite', { target_invite_id: inviteId });
+    if (error) return toSupabaseError(`초대 거절 실패: ${error.message}`, error);
+    return { ok: true, data: null };
+}
 
+export async function removeRemoteClanMember(clan: ClanRoom, memberId: string): Promise<SupabaseResult<null>> {
+    const client = requireClient();
+    if (!client) return disabledResult();
+    void clan;
+    const { error } = await client.rpc('remove_clan_member', { target_profile_id: memberId });
+    if (error) return toSupabaseError(`클랜 멤버 내보내기 실패: ${error.message}`, error);
     return { ok: true, data: null };
 }
 
@@ -248,71 +201,80 @@ export async function sendRemoteClanMessage(clan: ClanRoom, profile: PlayerProfi
     const client = requireClient();
     if (!client) return disabledResult();
 
-    const { data, error } = await client
-        .from('clan_messages')
-        .insert({
-            clan_id: clan.id,
-            author_id: profile.id,
-            author_name: profile.name,
-            text,
-            type,
-        })
-        .select('*')
-        .single<ClanMessageRow>();
+    void clan;
+    void profile;
+    if (type !== 'chat') return toSupabaseError('시스템 메시지는 서버에서만 만들 수 있습니다.');
+    const { data, error } = await client.rpc('send_clan_message', { message_text: text.trim() });
     if (error) return toSupabaseError(`채팅 전송 실패: ${error.message}`, error);
+    const row = (Array.isArray(data) ? data[0] : data) as ClanMessageRow | null;
+    if (!row) return toSupabaseError('채팅 전송 결과가 없습니다.');
+    return { ok: true, data: fromMessageRow(row) };
+}
 
-    return { ok: true, data: fromMessageRow(data) };
+export async function leaveRemoteClan(): Promise<SupabaseResult<null>> {
+    const client = requireClient();
+    if (!client) return disabledResult();
+    const { error } = await client.rpc('leave_clan');
+    if (error) return toSupabaseError(`클랜 나가기 실패: ${error.message}`, error);
+    return { ok: true, data: null };
 }
 
 export async function createRemoteFriendlyRoom(clan: ClanRoom, profile: PlayerProfile, opponent: ClanMember): Promise<SupabaseResult<FriendlyRoom>> {
     const client = requireClient();
     if (!client) return disabledResult();
 
-    const hostTeam: Team = Math.random() > 0.5 ? 'blue' : 'red';
-    const guestTeam: Team = hostTeam === 'blue' ? 'red' : 'blue';
-    const { data, error } = await client
-        .from('friendly_rooms')
-        .insert({
-            clan_id: clan.id,
-            host_user_id: profile.id,
-            guest_user_id: opponent.id,
-            host_name: profile.name,
-            guest_name: opponent.name,
-            host_team: hostTeam,
-            guest_team: guestTeam,
-            status: 'requested',
-        })
-        .select('*')
-        .single<FriendlyRoomRow>();
+    void clan;
+    const { data, error } = await client.rpc('create_friendly_room', {
+        target_profile_id: opponent.id,
+    });
     if (error) return toSupabaseError(`친선전 요청 실패: ${error.message}`, error);
 
-    return { ok: true, data: fromFriendlyRoomRow(data, profile.id) };
+    const row = (Array.isArray(data) ? data[0] : data) as FriendlyRoomRow | null;
+    if (!row) return toSupabaseError('Friendly battle request returned no room.');
+    return { ok: true, data: fromFriendlyRoomRow(row, profile.id) };
 }
 
-export async function acceptRemoteFriendlyRoom(roomId: string): Promise<SupabaseResult<null>> {
+export async function acceptRemoteFriendlyRoom(room: FriendlyRoom): Promise<SupabaseResult<number>> {
     const client = requireClient();
     if (!client) return disabledResult();
 
-    const { error } = await client.from('friendly_rooms').update({ status: 'accepted' }).eq('id', roomId);
+    const { data, error } = await client.rpc('transition_friendly_room', {
+        target_room_id: room.id,
+        expected_revision: room.revision ?? 1,
+        next_status: 'accepted',
+    });
     if (error) return toSupabaseError(`친선전 수락 실패: ${error.message}`, error);
-    return { ok: true, data: null };
+    return { ok: true, data: Number(data) };
 }
 
 export async function updateRemoteFriendlyRoomStatus(
-    roomId: string,
+    room: Pick<FriendlyRoom, 'id' | 'revision'>,
     status: FriendlyRoom['status']
-): Promise<SupabaseResult<null>> {
+): Promise<SupabaseResult<number>> {
     const client = requireClient();
     if (!client) return disabledResult();
 
-    const { error } = await client.from('friendly_rooms').update({ status }).eq('id', roomId);
+    const { data, error } = await client.rpc('transition_friendly_room', {
+        target_room_id: room.id,
+        expected_revision: room.revision ?? 1,
+        next_status: status,
+    });
     if (error) return toSupabaseError(`Friendly battle status update failed: ${error.message}`, error);
-    return { ok: true, data: null };
+    return { ok: true, data: Number(data) };
 }
 
 export async function loadRemoteClanState(profile: PlayerProfile): Promise<SupabaseResult<RemoteClanState>> {
     const client = requireClient();
     if (!client) return disabledResult();
+
+    const { data: incomingInvites, error: incomingInviteError } = await client
+        .from('clan_invites')
+        .select('*')
+        .eq('to_user_id', profile.id)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .returns<ClanInviteRow[]>();
+    if (incomingInviteError) return toSupabaseError(`받은 초대 조회 실패: ${incomingInviteError.message}`, incomingInviteError);
 
     const { data: membership, error: membershipError } = await client
         .from('clan_members')
@@ -320,16 +282,27 @@ export async function loadRemoteClanState(profile: PlayerProfile): Promise<Supab
         .eq('profile_id', profile.id)
         .maybeSingle<ClanMemberRow>();
     if (membershipError) return toSupabaseError(`클랜 멤버십 조회 실패: ${membershipError.message}`, membershipError);
-    if (!membership) return { ok: true, data: { clan: null, members: [], invites: [], messages: [], friendlyRoom: null } };
+    if (!membership) {
+        return {
+            ok: true,
+            data: {
+                clan: null,
+                members: [],
+                invites: (incomingInvites ?? []).map(fromInviteRow),
+                messages: [],
+                friendlyRoom: null,
+            },
+        };
+    }
 
     const { data: clan, error: clanError } = await client.from('clans').select('*').eq('id', membership.clan_id).single<ClanRow>();
     if (clanError) return toSupabaseError(`클랜 조회 실패: ${clanError.message}`, clanError);
 
     const [membersResult, invitesResult, messagesResult, roomsResult] = await Promise.all([
-        client.from('clan_members').select('*').eq('clan_id', clan.id).returns<ClanMemberRow[]>(),
+        client.from('clan_member_directory').select('*').eq('clan_id', clan.id).returns<ClanMemberRow[]>(),
         client.from('clan_invites').select('*').eq('clan_id', clan.id).order('created_at', { ascending: false }).returns<ClanInviteRow[]>(),
         client.from('clan_messages').select('*').eq('clan_id', clan.id).order('created_at', { ascending: true }).limit(80).returns<ClanMessageRow[]>(),
-        client.from('friendly_rooms').select('*').eq('clan_id', clan.id).in('status', ['requested', 'accepted', 'in_battle']).order('created_at', { ascending: false }).limit(1).returns<FriendlyRoomRow[]>(),
+        client.from('friendly_rooms').select('*').eq('clan_id', clan.id).in('status', ['requested', 'accepted', 'starting', 'in_battle']).order('created_at', { ascending: false }).limit(1).returns<FriendlyRoomRow[]>(),
     ]);
     const firstError = membersResult.error ?? invitesResult.error ?? messagesResult.error ?? roomsResult.error;
     if (firstError) return toSupabaseError(`클랜 상태 동기화 실패: ${firstError.message}`, firstError);
@@ -339,27 +312,66 @@ export async function loadRemoteClanState(profile: PlayerProfile): Promise<Supab
         data: {
             clan: fromClanRow(clan),
             members: (membersResult.data ?? []).map(fromMemberRow),
-            invites: (invitesResult.data ?? []).map(fromInviteRow),
+            invites: [...new Map(
+                [...(incomingInvites ?? []), ...(invitesResult.data ?? [])].map((invite) => [invite.id, invite])
+            ).values()].map(fromInviteRow),
             messages: (messagesResult.data ?? []).map(fromMessageRow),
             friendlyRoom: roomsResult.data?.[0] ? fromFriendlyRoomRow(roomsResult.data[0], profile.id) : null,
         },
     };
 }
 
-export function subscribeRemoteClan(clanId: string, onChange: () => void): RealtimeChannel | null {
+export interface RemoteSocialSubscription {
+    userChannel: RealtimeChannel;
+    clanChannel: RealtimeChannel | null;
+}
+
+export function subscribeRemoteSocial(
+    userId: string,
+    clanId: string | undefined,
+    onChange: () => void,
+    onPresence: (onlineUserIds: string[]) => void,
+): RemoteSocialSubscription | null {
     const client = requireClient();
     if (!client) return null;
 
-    return client
-        .channel(`clan:${clanId}`)
+    const userChannel = client
+        .channel(`social-user:${userId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'clan_invites', filter: `to_user_id=eq.${userId}` }, onChange)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'clan_members', filter: `profile_id=eq.${userId}` }, onChange)
+        .subscribe();
+
+    if (!clanId) {
+        onPresence([]);
+        return { userChannel, clanChannel: null };
+    }
+
+    const clanChannel = client
+        .channel(`social-clan:${clanId}`, { config: { presence: { key: userId } } })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'clan_members', filter: `clan_id=eq.${clanId}` }, onChange)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'clan_invites', filter: `clan_id=eq.${clanId}` }, onChange)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'clan_messages', filter: `clan_id=eq.${clanId}` }, onChange)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'friendly_rooms', filter: `clan_id=eq.${clanId}` }, onChange)
-        .subscribe();
+        .on('presence', { event: 'sync' }, () => {
+            const state = clanChannel.presenceState() as Record<string, Array<{ user_id?: string }>>;
+            const ids = new Set<string>();
+            for (const [key, presences] of Object.entries(state)) {
+                if (key) ids.add(key);
+                for (const presence of presences) if (presence.user_id) ids.add(presence.user_id);
+            }
+            onPresence([...ids]);
+        })
+        .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+                void clanChannel.track({ user_id: userId, online_at: new Date().toISOString() });
+            }
+        });
+
+    return { userChannel, clanChannel };
 }
 
-export function unsubscribeRemoteClan(channel: RealtimeChannel | null) {
-    if (!channel || !supabase) return;
-    void supabase.removeChannel(channel);
+export function unsubscribeRemoteSocial(subscription: RemoteSocialSubscription | null) {
+    if (!subscription || !supabase) return;
+    void supabase.removeChannel(subscription.userChannel);
+    if (subscription.clanChannel) void supabase.removeChannel(subscription.clanChannel);
 }

@@ -77,6 +77,7 @@ export const ko = {
         loading: '불러오는 중...',
         preparing: '전장을 준비하는 중...',
         ready: '아레나 준비 완료',
+        starting: '잠시 후 전투가 시작됩니다.',
         logoTop: '카오스',
         logoBottom: '로얄',
     },
@@ -124,6 +125,7 @@ export const ko = {
 export const UNIT_NAME_KO: Record<string, string> = {
     stone_cold: '스톤 콜드',
     muradin: '무라딘',
+    duckxel_muradin: '무라딘',
     seoultech_student: '서울과기대생',
     raiden: '레이든',
     viper: '바이퍼',

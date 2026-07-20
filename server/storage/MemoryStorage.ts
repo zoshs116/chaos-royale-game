@@ -1,6 +1,6 @@
 import type { MatchSummary } from '../services/matches/src/types';
 import type { ReplayRecord } from '../services/replay/src/types';
-import type { PlayerRatingRecord, ServerStorage } from './types';
+import type { PlayerProgressionRecord, PlayerRatingRecord, ServerStorage } from './types';
 
 export default class MemoryStorage implements ServerStorage {
     public readonly driver = 'memory' as const;
@@ -8,6 +8,7 @@ export default class MemoryStorage implements ServerStorage {
     private readonly matchSummaryById: Map<string, MatchSummary> = new Map<string, MatchSummary>();
     private readonly replayById: Map<string, ReplayRecord> = new Map<string, ReplayRecord>();
     private readonly playerRatingById: Map<string, PlayerRatingRecord> = new Map<string, PlayerRatingRecord>();
+    private readonly playerProgressionById = new Map<string, PlayerProgressionRecord>();
 
     public async getMatchSummary(matchId: string): Promise<MatchSummary | null> {
         return this.matchSummaryById.get(matchId) ?? null;
@@ -31,6 +32,14 @@ export default class MemoryStorage implements ServerStorage {
 
     public async upsertPlayerRating(record: PlayerRatingRecord): Promise<void> {
         this.playerRatingById.set(record.playerId, record);
+    }
+
+    public async getPlayerProgression(playerId: string): Promise<PlayerProgressionRecord | null> {
+        return this.playerProgressionById.get(playerId) ?? null;
+    }
+
+    public async upsertPlayerProgression(record: PlayerProgressionRecord): Promise<void> {
+        this.playerProgressionById.set(record.playerId, record);
     }
 
     public async close(): Promise<void> {

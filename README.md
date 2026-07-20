@@ -16,6 +16,20 @@ pnpm run dev:local
 
 Open <http://127.0.0.1:5222/>.
 
+To run the React/Phaser client and the local authoritative battle server together:
+
+```bash
+pnpm run dev:multiplayer
+```
+
+Development user A:
+
+<http://127.0.0.1:5222/?devUser=a>
+
+Development user B:
+
+<http://127.0.0.1:5222/?devUser=b>
+
 To open the battle scene directly:
 
 <http://127.0.0.1:5222/?automation=1&scene=battle>
@@ -36,7 +50,40 @@ VITE_SUPABASE_URL=your-project-url
 VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 ```
 
-Apply `docs/supabase-schema.sql` to the Supabase project before using those features.
+Apply `docs/supabase-schema.sql` to a fresh Supabase project before enabling authenticated remote features. The same schema is tracked as a migration under `supabase/migrations/`.
+
+For a project that already has the account/profile schema installed, apply only the clan social-system upgrade in:
+
+```text
+supabase/migrations/202607180002_social_system_hardening.sql
+```
+
+Run the entire file once in Supabase SQL Editor. It is safe to rerun after a successful installation because the schema changes and policies are written to replace their prior definitions.
+
+In Supabase Authentication settings, enable Email/Password sign-in and allow these local redirect URLs:
+
+```text
+http://127.0.0.1:5222/**
+http://localhost:5222/**
+```
+
+Normal entry uses the real Supabase session. Explicit `?devUser=a`, `?devUser=b`, and `?automation=1` URLs keep the isolated local test mode available. Profile progression fields are server-managed; authenticated clients can only update nickname, avatar, and deck through `update_own_profile`.
+
+## Multiplayer validation
+
+```bash
+pnpm run typecheck:server
+pnpm run test:multiplayer
+```
+
+The smoke suite verifies:
+
+- match-room lifecycle ordering
+- server-side deck, spawn, elixir, and sequence validation
+- idempotent match-result progression
+- two-user clan invite, acceptance, and friendly-room flow
+
+The WebSocket server defaults to `ws://127.0.0.1:8787/battle`, and the REST gateway defaults to `http://127.0.0.1:8788`. Set `CHAOS_DEV_MULTIPLAYER_TOKEN` and the matching `VITE_CHAOS_DEV_MULTIPLAYER_TOKEN` to protect local shared-network testing. Production mode refuses unauthenticated startup when no token is configured.
 
 ## Included source
 

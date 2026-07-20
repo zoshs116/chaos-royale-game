@@ -29,14 +29,21 @@ export interface SetBlueElixirPayload {
     value: number;
 }
 
+export interface CastActiveSkillPayload {
+    unitId: string;
+    skillKey: string;
+}
+
 /** 유닛 소환 명령 */
 export type SpawnUnitCmd = BaseInputCmd<'spawn_unit', SpawnUnitPayload>;
 
 /** 엘릭서 설정 명령 */
 export type SetBlueElixirCmd = BaseInputCmd<'set_blue_elixir', SetBlueElixirPayload>;
 
+export type CastActiveSkillCmd = BaseInputCmd<'cast_active_skill', CastActiveSkillPayload>;
+
 /** 로컬 시뮬레이션 명령 유니온 */
-export type InputCmd = SpawnUnitCmd | SetBlueElixirCmd;
+export type InputCmd = SpawnUnitCmd | SetBlueElixirCmd | CastActiveSkillCmd;
 
 /** 델타 계산을 위한 최소 상태 */
 export interface SimulationBaseState {

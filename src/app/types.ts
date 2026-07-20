@@ -1,4 +1,4 @@
-export type AppRoute = 'loading' | 'login' | 'profile' | 'lobby' | 'deck' | 'shop' | 'clan' | 'battle' | 'result';
+export type AppRoute = 'loading' | 'login' | 'profile' | 'lobby' | 'deck' | 'clan' | 'battle' | 'result';
 
 export type Team = 'blue' | 'red';
 export type ResultWinner = Team | 'draw';
@@ -14,6 +14,7 @@ export interface PlayerProfile {
     losses: number;
     avatarUnit: string;
     selectedDeck: string[];
+    profileComplete?: boolean;
 }
 
 export interface ClanRoom {
@@ -38,8 +39,11 @@ export interface ClanInvite {
     id: string;
     clanId: string;
     fromUserId: string;
+    fromUserName?: string;
+    toUserId?: string;
     toNickname: string;
-    status: 'pending' | 'accepted' | 'declined';
+    clanName?: string;
+    status: 'pending' | 'accepted' | 'declined' | 'canceled' | 'expired';
     createdAt: number;
 }
 
@@ -60,7 +64,11 @@ export interface FriendlyRoom {
     guestName: string | null;
     localTeam: Team;
     opponentTeam: Team;
-    status: 'waiting' | 'requested' | 'accepted' | 'starting' | 'in_battle' | 'finished';
+    status: 'waiting' | 'requested' | 'accepted' | 'starting' | 'in_battle' | 'finished' | 'declined' | 'canceled' | 'expired';
+    hostReady?: boolean;
+    guestReady?: boolean;
+    revision?: number;
+    expiresAt?: number;
     createdAt: number;
 }
 
@@ -76,6 +84,7 @@ export interface BattleResult {
 export interface BattleLaunchContext {
     mode: 'solo' | 'friendly';
     roomId?: string;
+    playerId?: string;
     localTeam: Team;
     opponentName: string;
 }

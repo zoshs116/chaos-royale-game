@@ -3,20 +3,27 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "packageManager": "pnpm@11.9.0",
   "scripts": {
     "dev": "vite",
     "dev:local": "vite --host 127.0.0.1 --port 5222 --strictPort",
+    "dev:multiplayer": "node scripts/run-local-multiplayer.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "preview:local": "vite preview --host 127.0.0.1 --port 5222 --strictPort",
     "generate:ui-atlas": "node scripts/generate-ui-atlas.mjs",
     "normalize:tower-rubble": "node scripts/normalize-tower-rubble.mjs",
     "typecheck:server": "tsc --noEmit -p server/tsconfig.json",
-    "worker:matchmaking": "tsx server/workers/matchmaking-tick-worker.ts"
+    "worker:matchmaking": "tsx server/workers/matchmaking-tick-worker.ts",
+    "server:gateway": "tsx server/gateway/src/httpServer.ts",
+    "server:realtime": "tsx server/realtime/src/server.ts",
+    "test:multiplayer": "tsx server/tests/multiplayer-smoke.ts",
+    "test:realtime": "tsx server/tests/realtime-websocket-smoke.ts"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
     "@types/pg": "^8.18.0",
+    "@types/ws": "8.18.1",
     "jimp": "^1.6.0",
     "tsx": "^4.20.5",
     "typescript": "~5.9.3",
@@ -31,6 +38,7 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "sqlite": "^5.1.1",
-    "sqlite3": "^5.1.7"
+    "sqlite3": "^5.1.7",
+    "ws": "8.21.0"
   }
 }

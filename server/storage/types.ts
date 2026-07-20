@@ -9,6 +9,16 @@ export interface PlayerRatingRecord {
     updatedAtUtc: string;
 }
 
+export interface PlayerProgressionRecord {
+    playerId: string;
+    wins: number;
+    losses: number;
+    trophies: number;
+    gold: number;
+    gems: number;
+    updatedAtUtc: string;
+}
+
 export interface ServerStorage {
     readonly driver: StorageDriver;
 
@@ -20,6 +30,9 @@ export interface ServerStorage {
 
     getPlayerRating(playerId: string): Promise<PlayerRatingRecord | null>;
     upsertPlayerRating(record: PlayerRatingRecord): Promise<void>;
+
+    getPlayerProgression(playerId: string): Promise<PlayerProgressionRecord | null>;
+    upsertPlayerProgression(record: PlayerProgressionRecord): Promise<void>;
 
     close(): Promise<void>;
 }

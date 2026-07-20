@@ -828,7 +828,7 @@ body::before {
   bottom: 0;
   height: 64px;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 4px;
   padding: 6px;
   border-radius: 14px 14px 0 0;
@@ -1963,6 +1963,65 @@ button.game-button-purple {
   gap: 10px;
 }
 
+.auth-mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 2px solid #526b9c;
+  background: #08172d;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.08);
+}
+
+.auth-mode-switch button {
+  min-height: 32px;
+  border: 0;
+  color: #9eb3d8;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.auth-mode-switch button.active {
+  color: #fff6c8;
+  background: linear-gradient(180deg, #315b9a, #16396d);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 2px 0 #061027;
+}
+
+.auth-message {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 3px solid #f4c44d;
+  color: #ffe59a;
+  background: rgba(8, 19, 38, 0.9);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.auth-boot-screen {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  color: #e8f1ff;
+  background: #071326;
+}
+
+.auth-boot-spinner {
+  width: 34px;
+  height: 34px;
+  border: 4px solid rgba(122, 160, 220, 0.25);
+  border-top-color: #69b7ff;
+  border-radius: 50%;
+  animation: authSpin 800ms linear infinite;
+}
+
+@keyframes authSpin {
+  to { transform: rotate(360deg); }
+}
+
 .profile-edit-panel {
   display: grid;
   gap: 12px;
@@ -1984,6 +2043,33 @@ button.game-button-purple {
   grid-template-columns: 1fr 88px;
   gap: 7px;
   margin-top: 8px;
+}
+
+.clan-membership-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  color: #b9c9e9;
+  font-size: 10px;
+}
+
+.clan-membership-actions button {
+  min-height: 28px;
+  padding: 0 10px 2px;
+  border: 1px solid #965a62;
+  border-radius: 6px;
+  color: #fff2f2;
+  background: linear-gradient(#71363f, #3f1d27);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 2px 0 rgba(0,0,0,0.34);
+}
+
+.clan-membership-actions button:disabled,
+.chat-input-row button:disabled,
+.invite-row button:disabled,
+.member-row button:disabled {
+  filter: grayscale(1) brightness(0.62);
 }
 
 .clan-create-row input,
@@ -2034,6 +2120,13 @@ button.game-button-purple {
 
 .invite-row.accepted {
   background: rgba(26, 88, 64, 0.34);
+}
+
+.invite-row.declined,
+.invite-row.canceled,
+.invite-row.expired {
+  opacity: 0.7;
+  background: rgba(55, 61, 76, 0.42);
 }
 
 .invite-row button,
@@ -2293,4 +2386,341 @@ button.game-button-purple {
 
 .inline-icon {
   vertical-align: -0.2em;
+}
+
+/* Compact Duckxel unit profile shown from the deck collection. */
+.unit-profile-backdrop {
+  position: absolute;
+  z-index: 90;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: rgba(1, 5, 12, 0.78);
+  backdrop-filter: blur(2px);
+}
+
+.unit-profile-modal {
+  width: min(336px, 100%);
+  max-height: calc(100% - 16px);
+  overflow-y: auto;
+  border: 2px solid #668ac0;
+  border-radius: 8px;
+  color: #f4f7ff;
+  background: #0a1322;
+  box-shadow:
+    0 16px 34px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 2px #182a45,
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+.unit-profile-header {
+  position: relative;
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: 38px 1fr 44px;
+  gap: 9px;
+  align-items: center;
+  padding: 7px 6px 7px 10px;
+  border-bottom: 1px solid #3b5279;
+  background: #152641;
+}
+
+.unit-profile-header h2,
+.unit-profile-header p,
+.unit-profile-skill p {
+  margin: 0;
+}
+
+.unit-profile-header h2 {
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 16px;
+  line-height: 1.12;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unit-profile-header p {
+  margin-top: 3px;
+  color: #aabbd8;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.unit-profile-cost {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 2px solid #f0a9ff;
+  border-radius: 50%;
+  color: #ffffff;
+  background: #8e24b8;
+  font-size: 15px;
+  font-weight: 1000;
+  box-shadow: inset 0 0 0 2px #511269;
+}
+
+.unit-profile-close {
+  width: 44px;
+  height: 44px;
+  border: 1px solid #7691bd;
+  border-radius: 7px;
+  color: #ffffff;
+  background: #243753;
+  font-size: 26px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.unit-profile-close:active {
+  background: #314d76;
+}
+
+.unit-profile-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 82px;
+  gap: 8px;
+  padding: 9px;
+}
+
+.unit-profile-preview-column {
+  min-width: 0;
+}
+
+.unit-profile-action-tabs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.unit-profile-action-tabs button {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid #40577e;
+  border-radius: 6px;
+  color: #aebeda;
+  background: #111d31;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.unit-profile-action-tabs button.active {
+  border-color: #7fb9ff;
+  color: #ffffff;
+  background: #234f8c;
+}
+
+.unit-profile-preview-stage {
+  position: relative;
+  height: 154px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid #344866;
+  background:
+    linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px) 0 0 / 16px 16px,
+    linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px) 0 0 / 16px 16px,
+    #08111f;
+}
+
+.unit-profile-preview-stage::after {
+  content: '';
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  bottom: 15px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.unit-profile-preview-stage img {
+  position: relative;
+  z-index: 1;
+  width: 138px;
+  height: 138px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  transform-origin: center;
+}
+
+.unit-profile-frame-status {
+  position: absolute;
+  z-index: 2;
+  right: 5px;
+  bottom: 4px;
+  min-width: 34px;
+  padding: 2px 5px;
+  color: #8fa3c6;
+  background: rgba(3, 8, 16, 0.76);
+  font-size: 9px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.unit-profile-directions {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.unit-profile-directions button {
+  min-width: 0;
+  height: 44px;
+  border: 1px solid #40577e;
+  border-radius: 6px;
+  color: #b8c9e6;
+  background: #111d31;
+  font-size: 19px;
+  font-weight: 900;
+}
+
+.unit-profile-directions button.active {
+  border-color: #80c3ff;
+  color: #ffffff;
+  background: #225b9d;
+  box-shadow: inset 0 0 0 1px #2f86dc;
+}
+
+.unit-profile-deck-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-top: 40px;
+}
+
+.unit-profile-deck-actions > span {
+  min-height: 25px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #465c80;
+  color: #a7b8d4;
+  background: #111c2e;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.unit-profile-deck-actions > span.included {
+  border-color: #55ba8e;
+  color: #b9ffe1;
+  background: #123b31;
+}
+
+.unit-profile-deck-actions button {
+  min-height: 46px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 1000;
+}
+
+.unit-profile-deck-actions button.add {
+  border: 1px solid #f3cc61;
+  color: #291b03;
+  background: #f0b92e;
+}
+
+.unit-profile-deck-actions button.remove {
+  border: 1px solid #de7181;
+  color: #ffffff;
+  background: #913141;
+}
+
+.unit-profile-deck-actions button:disabled {
+  border-color: #3c485d;
+  color: #6f7b90;
+  background: #182130;
+  opacity: 1;
+}
+
+.unit-profile-deck-actions small {
+  color: #e8bd75;
+  font-size: 8px;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.unit-profile-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  margin: 0 9px 9px;
+  border: 1px solid #354866;
+  background: #354866;
+}
+
+.unit-profile-stats > div {
+  min-width: 0;
+  min-height: 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 5px 9px;
+  background: #101b2d;
+}
+
+.unit-profile-stats span {
+  color: #8295b6;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.unit-profile-stats strong {
+  overflow: hidden;
+  margin-top: 2px;
+  color: #f5f8ff;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unit-profile-skill {
+  margin: 0 9px 9px;
+  padding: 8px 10px;
+  border-left: 3px solid #bd63ec;
+  background: #17172c;
+}
+
+.unit-profile-skill > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.unit-profile-skill strong {
+  color: #f4d2ff;
+  font-size: 12px;
+}
+
+.unit-profile-skill span {
+  color: #dba9ee;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.unit-profile-skill p {
+  margin-top: 5px;
+  color: #c3cbe0;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+@media (max-height: 660px) {
+  .unit-profile-preview-stage {
+    height: 126px;
+  }
+
+  .unit-profile-preview-stage img {
+    width: 112px;
+    height: 112px;
+  }
+
+  .unit-profile-stats > div {
+    min-height: 36px;
+  }
 }

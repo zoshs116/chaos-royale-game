@@ -414,27 +414,31 @@ export default class SkillSystem {
     // ===== DEBUFF PROCESSING =====
     processDebuffs(unit: Unit, delta: number) {
         if (unit.isTower) return;
-        if (!unit.debuffs || unit.debuffs.length === 0) return;
 
         let isStunned = false;
         let slowFactor = 1;
+        const sprite = unit.getSprite();
+        const hadDebuffs = unit.debuffs.length > 0;
 
         for (let i = unit.debuffs.length - 1; i >= 0; i--) {
             const debuff = unit.debuffs[i];
             debuff.duration -= delta;
 
+            if (debuff.duration <= 0) {
+                unit.debuffs.splice(i, 1);
+                continue;
+            }
+
             switch (debuff.type) {
                 case 'stun':
                 case 'petrify':
                     isStunned = true;
-                    if (unit.getSprite()) {
-                        unit.getSprite()!.setTint(debuff.type === 'stun' ? 0xffff66 : 0x9a9a9a);
-                    }
+                    sprite?.setTint(debuff.type === 'stun' ? 0xffff66 : 0x9a9a9a);
                     break;
 
                 case 'slow':
                     slowFactor = Math.min(slowFactor, debuff.value || 0.5);
-                    if (unit.getSprite()) unit.getSprite()!.setTint(0x88a3ff);
+                    sprite?.setTint(0x88a3ff);
                     break;
 
                 case 'poison':
@@ -443,20 +447,16 @@ export default class SkillSystem {
                         debuff.tickTimer -= 500;
                         const dps = debuff.value || 15;
                         unit.takeDamage(Math.floor(dps * 0.5));
-                        if (unit.getSprite()) unit.getSprite()!.setTint(0x68d87b);
+                        sprite?.setTint(0x68d87b);
                     }
                     break;
             }
-
-            if (debuff.duration <= 0) {
-                unit.debuffs.splice(i, 1);
-                if (unit.debuffs.length === 0 && unit.getSprite()) {
-                    unit.getSprite()!.clearTint();
-                }
-            }
         }
 
-        unit.isStunned = isStunned;
-        unit.slowFactor = slowFactor;
+        if (hadDebuffs && unit.debuffs.length === 0) {
+            sprite?.clearTint();
+        }
+
+        unit.applyCombatControlState(isStunned, slowFactor);
     }
 }

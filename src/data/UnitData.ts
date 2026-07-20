@@ -1,4 +1,5 @@
 import type { UnitStats } from '../entities/Unit';
+import type { ActiveSkillKey } from './ActiveSkillData';
 
 /** 역할군 타입 */
 export type UnitRole = 'tank' | 'assassin' | 'mage' | 'support' | 'siege' | 'swarm';
@@ -77,6 +78,7 @@ export interface UnitData extends UnitStats {
     isHidden?: boolean;
     skill: SkillType;
     skillParams: SkillParams;
+    activeSkill?: ActiveSkillKey;
 }
 
 /** 상성 보너스 맵: role -> { strong: 유리한 역할, weak: 불리한 역할 } */
@@ -99,6 +101,7 @@ export const UNIT_FACTIONS: Record<string, { faction: Faction; category: UnitCat
     'royal_giant': { faction: 'neutral', category: 'terror' },
     'duckxel_sword_man': { faction: 'neutral', category: 'dealer' },
     'duckxel_barbarian': { faction: 'neutral', category: 'dealer' },
+    'duckxel_muradin': { faction: 'neutral', category: 'tank' },
     'skeleton_swordsman': { faction: 'neutral', category: 'summon' },
     'hog_rider': { faction: 'neutral', category: 'terror' },
 
@@ -314,6 +317,26 @@ export const UNIT_TYPES: Record<string, UnitData> = {
         role: 'swarm',
         skill: 'none',
         skillParams: {},
+    },
+
+    'duckxel_muradin': {
+        name: '무라딘',
+        description: '도끼를 휘두르며 전진하고 대지 강타로 주변 적과 건물에 범위 피해를 주는 Duck.xel 전사.',
+        spriteKey: 'duckxel_muradin',
+        cost: 4,
+        hp: 1650,
+        damage: 175,
+        speed: 42,
+        range: 36,
+        attackSpeed: 1400,
+        movementType: 'ground',
+        targetPriority: 'any',
+        attackType: 'melee',
+        sightRange: 300,
+        role: 'tank',
+        skill: 'none',
+        skillParams: {},
+        activeSkill: 'earthbreaker',
     },
 
     'hog_rider': {
@@ -1584,7 +1607,7 @@ export const UNIT_TYPES: Record<string, UnitData> = {
  * Returns a shuffled deck of unit keys for gameplay
  */
 export function createDeck(): string[] {
-    const priorityKeys = ['skeleton_swordsman', 'spear_goblin', 'royal_giant', 'hog_rider', 'duckxel_barbarian', 'duckxel_sword_man'];
+    const priorityKeys = ['skeleton_swordsman', 'spear_goblin', 'royal_giant', 'hog_rider', 'duckxel_barbarian', 'duckxel_sword_man', 'duckxel_muradin'];
     const keys = Object.keys(UNIT_TYPES).filter((key) => !priorityKeys.includes(key));
     const deck = [...priorityKeys, ...keys];
     Phaser.Utils.Array.Shuffle(deck);
