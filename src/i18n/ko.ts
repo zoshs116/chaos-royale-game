@@ -126,6 +126,7 @@ export const UNIT_NAME_KO: Record<string, string> = {
     stone_cold: '스톤 콜드',
     muradin: '무라딘',
     duckxel_muradin: '무라딘',
+    duckxel_web_acrobat: '레드 마스크',
     seoultech_student: '서울과기대생',
     raiden: '레이든',
     viper: '바이퍼',

@@ -1,8 +1,9 @@
 import { UNIT_FACTIONS, UNIT_TYPES } from '../data/UnitData';
+import { DUCKXEL_UNIT_KEYS, isDuckxelAssetUnit } from '../data/DuckxelAnimationCatalog';
 import { resolveDevelopmentIdentity } from './identity';
 import type { ClanMember, ClanMessage, ClanRoom, PlayerProfile } from './types';
 
-export const DEFAULT_DECK = ['skeleton_swordsman', 'spear_goblin', 'royal_giant', 'hog_rider', 'duckxel_barbarian', 'duckxel_sword_man', 'duckxel_muradin', 'stone_cold'];
+export const DEFAULT_DECK = [...DUCKXEL_UNIT_KEYS];
 const developmentIdentity = resolveDevelopmentIdentity();
 
 export const DEFAULT_PROFILE: PlayerProfile = {
@@ -65,7 +66,11 @@ export const INITIAL_CLAN_MESSAGES: ClanMessage[] = [
 ];
 
 export const visibleUnitKeys = () =>
-    Object.keys(UNIT_TYPES).filter((key) => UNIT_FACTIONS[key] && !UNIT_FACTIONS[key].isHidden);
+    Object.keys(UNIT_TYPES).filter((key) => (
+        UNIT_FACTIONS[key]
+        && !UNIT_FACTIONS[key].isHidden
+        && isDuckxelAssetUnit(key)
+    ));
 
 export const formatNumber = (num: number) => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;

@@ -240,23 +240,23 @@ export default class EntityManager {
 
     public castActiveSkill(unit: Unit): boolean {
         if (!this.units.includes(unit) || !unit.active || unit.state === UnitState.DIE) return false;
-        return unit.castActiveSkill((caster, definition) => {
-            this.resolveActiveSkillImpact(caster, definition);
+        return unit.castActiveSkill((caster, definition, x, y) => {
+            this.resolveActiveSkillImpact(caster, definition, x, y);
         });
     }
 
     public playRemoteActiveSkillCast(unit: Unit, castSerial: number): boolean {
         if (!this.units.includes(unit) || !unit.active || unit.state === UnitState.DIE) return false;
-        return unit.playRemoteActiveSkillCast(castSerial, (caster, definition) => {
-            this.playActiveSkillImpactSequence(caster.x, caster.y, caster.team, definition);
+        return unit.playRemoteActiveSkillCast(castSerial, (caster, definition, x, y) => {
+            this.playActiveSkillImpactSequence(caster.x, caster.y, x, y, caster.team, definition, undefined, undefined, false);
         });
     }
 
-    private resolveActiveSkillImpact(caster: Unit, definition: ActiveSkillDefinition) {
+    private resolveActiveSkillImpact(caster: Unit, definition: ActiveSkillDefinition, impactX: number, impactY: number) {
         if (!caster.active || caster.state === UnitState.DIE) return;
-        const impactX = caster.x;
-        const impactY = caster.y;
         this.playActiveSkillImpactSequence(
+            caster.x,
+            caster.y,
             impactX,
             impactY,
             caster.team,
@@ -271,6 +271,7 @@ export default class EntityManager {
                     y: impactY,
                 });
             },
+            (elapsedMs) => this.applyActiveSkillZoneTick(caster, impactX, impactY, definition, elapsedMs),
         );
     }
 
@@ -296,32 +297,75 @@ export default class EntityManager {
                 wave.damage * (target.isTower ? wave.towerDamageMultiplier : 1)
             ));
             target.takeDamage(damage, caster);
+            if (definition.persistentZone?.root && !target.isTower && target.active && target.state !== UnitState.DIE) {
+                target.addDebuff({ type: 'stun', duration: definition.persistentZone.durationMs });
+            }
             if (target.active && target.state !== UnitState.DIE) {
                 target.showHitReaction('splash', caster.team === 'blue' ? 0x8fcfff : 0xff8b76);
             }
         }
     }
 
+    private applyActiveSkillZoneTick(
+        caster: Unit,
+        impactX: number,
+        impactY: number,
+        definition: ActiveSkillDefinition,
+        elapsedMs: number,
+    ) {
+        const zone = definition.persistentZone;
+        if (!zone || !caster.active || caster.state === UnitState.DIE) return;
+        const remainingMs = Math.max(0, zone.durationMs - elapsedMs);
+        for (const target of this.units) {
+            if (!target.active || target.state === UnitState.DIE || target.team === caster.team || target.isTower) continue;
+            if (target.stats.movementType === 'air' && !definition.targetMask.air) continue;
+            if (target.stats.movementType === 'ground' && !definition.targetMask.ground) continue;
+            const distance = Phaser.Math.Distance.Between(impactX, impactY, target.x, target.y);
+            if (distance > definition.radius + target.getCollisionRadius()) continue;
+            target.takeDamage(zone.damagePerTick, caster);
+            if (zone.root && remainingMs > 0 && target.active && target.state !== UnitState.DIE) {
+                target.addDebuff({ type: 'stun', duration: Math.max(zone.tickIntervalMs + 120, remainingMs) });
+            }
+        }
+    }
+
     private playActiveSkillImpactSequence(
+        originX: number,
+        originY: number,
         x: number,
         y: number,
         team: 'blue' | 'red',
         definition: ActiveSkillDefinition,
         onWave?: (wave: ActiveSkillImpactWave, waveIndex: number) => void,
+        onZoneTick?: (elapsedMs: number) => void,
+        renderPersistentZone = true,
     ) {
         const persistentEffects: Phaser.GameObjects.GameObject[] = [];
         const frameDuration = Math.max(40, Math.round(1000 / definition.vfx.fps));
         const lastWaveDelay = Math.max(...definition.impactWaves.map((wave) => wave.delayAfterLandingMs));
+        if (definition.projectileVfx) {
+            this.playActiveSkillProjectileVfx(originX, originY, x, y, definition);
+        }
         for (const [waveIndex, wave] of definition.impactWaves.entries()) {
             const playWave = () => {
                 onWave?.(wave, waveIndex);
-                this.playActiveSkillImpactWave(x, y, team, definition, wave, persistentEffects);
+                if (!definition.persistentZone || renderPersistentZone) {
+                    this.playActiveSkillImpactWave(x, y, team, definition, wave, persistentEffects);
+                }
             };
             if (wave.delayAfterLandingMs <= 0) playWave();
             else this.scene.time.delayedCall(wave.delayAfterLandingMs, playWave);
         }
 
-        const fadeDelay = lastWaveDelay + frameDuration * definition.vfx.frameCount + 80;
+        if (definition.persistentZone && onZoneTick) {
+            const { durationMs, tickIntervalMs } = definition.persistentZone;
+            for (let elapsedMs = tickIntervalMs; elapsedMs <= durationMs; elapsedMs += tickIntervalMs) {
+                this.scene.time.delayedCall(elapsedMs, () => onZoneTick(elapsedMs));
+            }
+        }
+
+        const fadeDelay = definition.persistentZone?.durationMs
+            ?? (lastWaveDelay + frameDuration * definition.vfx.frameCount + 80);
         this.scene.time.delayedCall(fadeDelay, () => {
             for (const effect of persistentEffects) {
                 if (!effect.active) continue;
@@ -336,6 +380,51 @@ export default class EntityManager {
         });
     }
 
+    private playActiveSkillProjectileVfx(
+        originX: number,
+        originY: number,
+        targetX: number,
+        targetY: number,
+        definition: ActiveSkillDefinition,
+    ) {
+        const projectile = definition.projectileVfx;
+        if (!projectile) return;
+        const firstTexture = `${projectile.texturePrefix}_0`;
+        if (!this.scene.textures.exists(firstTexture)) return;
+        const distance = Phaser.Math.Distance.Between(originX, originY, targetX, targetY);
+        const angle = Phaser.Math.Angle.Between(originX, originY, targetX, targetY);
+        const line = this.scene.add.image(originX, originY, firstTexture)
+            .setOrigin(0, 0.5)
+            .setRotation(angle)
+            .setDisplaySize(Math.max(18, distance), projectile.thickness)
+            .setDepth(CONSTANTS.DEPTH.PROJECTILE + 7);
+        const targetScaleX = line.scaleX;
+        const targetScaleY = line.scaleY;
+        line.setScale(targetScaleX * 0.08, targetScaleY);
+        this.scene.tweens.add({
+            targets: line,
+            scaleX: targetScaleX,
+            duration: projectile.travelMs,
+            ease: 'Cubic.Out',
+        });
+        const frameDuration = Math.max(40, Math.round(1000 / projectile.fps));
+        for (let frame = 1; frame < projectile.frameCount; frame += 1) {
+            this.scene.time.delayedCall(frame * frameDuration, () => {
+                const texture = `${projectile.texturePrefix}_${frame}`;
+                if (line.active && this.scene.textures.exists(texture)) line.setTexture(texture);
+            });
+        }
+        this.scene.time.delayedCall(projectile.travelMs + 90, () => {
+            if (!line.active) return;
+            this.scene.tweens.add({
+                targets: line,
+                alpha: 0,
+                duration: 120,
+                onComplete: () => line.destroy(),
+            });
+        });
+    }
+
     private playActiveSkillImpactWave(
         x: number,
         y: number,
@@ -345,7 +434,9 @@ export default class EntityManager {
         persistentEffects: Phaser.GameObjects.GameObject[],
     ) {
         const color = team === 'blue' ? 0x78cfff : 0xff866f;
-        const depth = CONSTANTS.DEPTH.PROJECTILE + 4;
+        const depth = definition.persistentZone
+            ? CONSTANTS.DEPTH.UNIT_SHADOW + 1
+            : CONSTANTS.DEPTH.PROJECTILE + 4;
         const frameDuration = Math.max(40, Math.round(1000 / definition.vfx.fps));
         const firstTexture = `${definition.vfx.texturePrefix}_0`;
 
@@ -369,6 +460,11 @@ export default class EntityManager {
                 },
             });
             this.scene.time.delayedCall(frameDuration * definition.vfx.frameCount, () => timer.remove(false));
+        }
+
+        if (definition.persistentZone) {
+            this.scene.cameras.main.shake(wave.shakeDurationMs, wave.shakeIntensity);
+            return;
         }
 
         const ring = this.scene.add.ellipse(x, y + 5, wave.radius * 2, wave.radius * 0.86, color, 0.22);

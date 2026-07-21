@@ -102,6 +102,7 @@ export const UNIT_FACTIONS: Record<string, { faction: Faction; category: UnitCat
     'duckxel_sword_man': { faction: 'neutral', category: 'dealer' },
     'duckxel_barbarian': { faction: 'neutral', category: 'dealer' },
     'duckxel_muradin': { faction: 'neutral', category: 'tank' },
+    'duckxel_web_acrobat': { faction: 'neutral', category: 'assassin' },
     'skeleton_swordsman': { faction: 'neutral', category: 'summon' },
     'hog_rider': { faction: 'neutral', category: 'terror' },
 
@@ -337,6 +338,26 @@ export const UNIT_TYPES: Record<string, UnitData> = {
         skill: 'none',
         skillParams: {},
         activeSkill: 'earthbreaker',
+    },
+
+    'duckxel_web_acrobat': {
+        name: '레드 마스크',
+        description: '백덤블링으로 거리를 벌린 뒤 포획 거미줄로 적 무리를 속박하는 Duck.xel 근접 영웅.',
+        spriteKey: 'duckxel_web_acrobat',
+        cost: 4,
+        hp: 1120,
+        damage: 145,
+        speed: 54,
+        range: 34,
+        attackSpeed: 1180,
+        movementType: 'ground',
+        targetPriority: 'any',
+        attackType: 'melee',
+        sightRange: 315,
+        role: 'assassin',
+        skill: 'none',
+        skillParams: {},
+        activeSkill: 'web_snare',
     },
 
     'hog_rider': {
@@ -1607,7 +1628,7 @@ export const UNIT_TYPES: Record<string, UnitData> = {
  * Returns a shuffled deck of unit keys for gameplay
  */
 export function createDeck(): string[] {
-    const priorityKeys = ['skeleton_swordsman', 'spear_goblin', 'royal_giant', 'hog_rider', 'duckxel_barbarian', 'duckxel_sword_man', 'duckxel_muradin'];
+    const priorityKeys = ['skeleton_swordsman', 'spear_goblin', 'royal_giant', 'hog_rider', 'duckxel_barbarian', 'duckxel_sword_man', 'duckxel_muradin', 'duckxel_web_acrobat'];
     const keys = Object.keys(UNIT_TYPES).filter((key) => !priorityKeys.includes(key));
     const deck = [...priorityKeys, ...keys];
     Phaser.Utils.Array.Shuffle(deck);

@@ -5,9 +5,14 @@ interface BattleMessage {
     type: string;
     seq?: number;
     accepted?: boolean;
+    sentAt?: number;
     snapshot?: {
+        tick: number;
         state: string;
+        paused?: boolean;
+        disconnectGraceRemainingMs?: number | null;
         winner?: string;
+        finishReason?: string;
         units: Array<{ id: string; unitKey: string; attackSerial: number }>;
         projectiles: Array<{ id: string; projectileKey: string }>;
     };
@@ -18,6 +23,7 @@ const token = process.env.CHAOS_DEV_MULTIPLAYER_TOKEN ?? 'chaos-local-developmen
 const roomId = `realtime-smoke-${Date.now()}`;
 const blue = await connectClient();
 const red = await connectClient();
+let redReconnect: Awaited<ReturnType<typeof connectClient>> | null = null;
 
 try {
     blue.socket.send(JSON.stringify({
@@ -36,6 +42,11 @@ try {
     }));
     await red.waitFor((message) => message.type === 'joined' && message.snapshot?.state === 'running');
     await blue.waitFor((message) => message.type === 'snapshot' && message.snapshot?.state === 'running');
+
+    const pingSentAt = Date.now();
+    blue.socket.send(JSON.stringify({ type: 'ping', sentAt: pingSentAt }));
+    const pong = await blue.waitFor((message) => message.type === 'pong' && message.sentAt === pingSentAt);
+    assert.equal(pong.sentAt, pingSentAt);
 
     blue.socket.send(JSON.stringify({
         type: 'command',
@@ -65,19 +76,41 @@ try {
     assert(blueSpear);
     assert.equal(redSpear?.id, blueSpear.id);
 
-    red.socket.send(JSON.stringify({
+    const redClosed = new Promise<void>((resolve) => red.socket.once('close', () => resolve()));
+    red.socket.close();
+    await redClosed;
+    const paused = await blue.waitFor((message) => message.type === 'snapshot' && message.snapshot?.paused === true);
+    assert((paused.snapshot?.disconnectGraceRemainingMs ?? 0) > 0);
+
+    redReconnect = await connectClient();
+    redReconnect.socket.send(JSON.stringify({
+        type: 'join',
+        roomId,
+        token,
+        player: { playerId: 'network-red', team: 'red', deck: ['duckxel_sword_man'] },
+    }));
+    const rejoined = await redReconnect.waitFor((message) => message.type === 'joined' && message.snapshot?.paused === false);
+    const resumed = await blue.waitFor((message) => message.type === 'snapshot'
+        && message.snapshot?.paused === false
+        && (message.snapshot?.tick ?? 0) > (paused.snapshot?.tick ?? 0));
+    assert.equal(rejoined.snapshot?.state, 'running');
+    assert.equal(resumed.snapshot?.state, 'running');
+
+    redReconnect.socket.send(JSON.stringify({
         type: 'command',
         roomId,
         command: { type: 'forfeit', playerId: 'network-red', seq: 1 },
     }));
     const blueFinished = await blue.waitFor((message) => message.type === 'snapshot' && message.snapshot?.state === 'finished');
-    const redFinished = await red.waitFor((message) => message.type === 'snapshot' && message.snapshot?.state === 'finished');
+    const redFinished = await redReconnect.waitFor((message) => message.type === 'snapshot' && message.snapshot?.state === 'finished');
     assert.equal(blueFinished.snapshot?.winner, 'blue');
     assert.equal(redFinished.snapshot?.winner, 'blue');
+    assert.equal(blueFinished.snapshot?.finishReason, 'forfeit');
     console.log('[realtime-websocket-smoke] all checks passed');
 } finally {
     blue.socket.close();
     red.socket.close();
+    redReconnect?.socket.close();
 }
 
 async function connectClient() {

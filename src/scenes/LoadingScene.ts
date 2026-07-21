@@ -165,6 +165,18 @@ export default class LoadingScene extends Phaser.Scene {
                 `assets/sprites/duckxel/muradin_vfx/impact/frame-${String(frame).padStart(2, '0')}.png`
             );
         }
+        for (let frame = 0; frame < 2; frame++) {
+            this.load.image(
+                `vfx_web_acrobat_line_${frame}`,
+                `assets/sprites/duckxel/web_acrobat_vfx/line/frame-${String(frame).padStart(2, '0')}.png`
+            );
+        }
+        for (let frame = 0; frame < 3; frame++) {
+            this.load.image(
+                `vfx_web_acrobat_zone_${frame}`,
+                `assets/sprites/duckxel/web_acrobat_vfx/zone/frame-${String(frame).padStart(2, '0')}.png`
+            );
+        }
 
         this.load.on('complete', () => {
             this.ensureFallbackTextures();

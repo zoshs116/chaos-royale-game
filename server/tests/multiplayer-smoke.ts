@@ -7,6 +7,7 @@ import { getAuthoritativeCombatProfile, validateAuthoritativeCombatProfiles } fr
 
 await testMatchRoomLifecycle();
 await testAuthoritativeBattleValidation();
+await testAuthoritativeDisconnectGrace();
 await testAuthoritativeDuckxelCombatFlow();
 await testIdempotentProgression();
 await testLocalClanAndFriendlyFlow();
@@ -36,15 +37,49 @@ function testDuckxelCombatProfiles() {
         'royal_giant',
         'hog_rider',
         'duckxel_muradin',
+        'duckxel_web_acrobat',
     ];
     assert.deepEqual(validateAuthoritativeCombatProfiles(unitKeys), []);
     assert.equal(getAuthoritativeCombatProfile('spear_goblin')?.spawnCount, 3);
     assert.equal(getAuthoritativeCombatProfile('royal_giant')?.targetPolicy, 'building-only');
     assert.equal(getAuthoritativeCombatProfile('hog_rider')?.movementRoute, 'river-jump');
     assert.equal(getAuthoritativeCombatProfile('duckxel_muradin')?.activeSkill, 'earthbreaker');
+    assert.equal(getAuthoritativeCombatProfile('duckxel_web_acrobat')?.activeSkill, 'web_snare');
 }
 
 async function testAuthoritativeDuckxelCombatFlow() {
+    const webRoom = new AuthoritativeBattleRoom('room-web-snare-flow');
+    webRoom.join({ playerId: 'blue-web', team: 'blue', deck: ['duckxel_web_acrobat'] });
+    webRoom.join({ playerId: 'red-web-target', team: 'red', deck: ['duckxel_sword_man'] });
+    assert.equal(webRoom.enqueue({
+        type: 'spawn', playerId: 'blue-web', seq: 1, unitKey: 'duckxel_web_acrobat', x: 180, y: 400, handIndex: 0,
+    }).accepted, true);
+    assert.equal(webRoom.enqueue({
+        type: 'spawn', playerId: 'red-web-target', seq: 1, unitKey: 'duckxel_sword_man', x: 180, y: 280, handIndex: 0,
+    }).accepted, true);
+    for (let index = 0; index < 16; index += 1) webRoom.step();
+    const webCaster = webRoom.snapshot().units.find((unit) => unit.ownerId === 'blue-web');
+    const webTargetBefore = webRoom.snapshot().units.find((unit) => unit.ownerId === 'red-web-target');
+    assert(webCaster && webTargetBefore);
+    assert.equal(webRoom.enqueue({
+        type: 'cast_active_skill', playerId: 'blue-web', seq: 2, unitId: webCaster.id, skillKey: 'web_snare',
+    }).accepted, true);
+    let zoneSnapshot = webRoom.snapshot();
+    for (let index = 0; index < 45 && zoneSnapshot.skillZones.length === 0; index += 1) zoneSnapshot = webRoom.step();
+    assert.equal(zoneSnapshot.skillZones.length, 1, 'web snare must create an authoritative persistent zone');
+    const rootedTarget = zoneSnapshot.units.find((unit) => unit.ownerId === 'red-web-target');
+    assert(rootedTarget && rootedTarget.hp < webTargetBefore.hp, 'web snare must apply its opening area hit');
+    const rootedAt = { x: rootedTarget.x, y: rootedTarget.y, hp: rootedTarget.hp };
+    for (let index = 0; index < 24; index += 1) zoneSnapshot = webRoom.step();
+    const targetDuringRoot = zoneSnapshot.units.find((unit) => unit.ownerId === 'red-web-target');
+    assert(targetDuringRoot);
+    assert(Math.hypot(targetDuringRoot.x - rootedAt.x, targetDuringRoot.y - rootedAt.y) < 0.5, 'web snare must immobilize ground units inside its area');
+    for (let index = 0; index < 18; index += 1) zoneSnapshot = webRoom.step();
+    const targetAfterDot = zoneSnapshot.units.find((unit) => unit.ownerId === 'red-web-target');
+    assert(targetAfterDot && targetAfterDot.hp < rootedAt.hp, 'web snare must deal authoritative periodic damage');
+    for (let index = 0; index < 150; index += 1) zoneSnapshot = webRoom.step();
+    assert.equal(zoneSnapshot.skillZones.length, 0, 'web snare zone must expire after five seconds');
+
     const skillRoom = new AuthoritativeBattleRoom('room-active-skill-flow');
     skillRoom.join({ playerId: 'blue-skill', team: 'blue', deck: ['duckxel_muradin'] });
     skillRoom.join({ playerId: 'red-target', team: 'red', deck: ['duckxel_sword_man'] });
@@ -222,6 +257,49 @@ async function testAuthoritativeBattleValidation() {
     const forfeited = forfeitRoom.snapshot();
     assert.equal(forfeited.state, 'finished');
     assert.equal(forfeited.winner, 'blue');
+}
+
+async function testAuthoritativeDisconnectGrace() {
+    let now = 10_000;
+    const room = new AuthoritativeBattleRoom('room-disconnect-grace', () => now);
+    room.join({ playerId: 'player-a', team: 'blue', deck: ['duckxel_sword_man'] });
+    room.join({ playerId: 'player-b', team: 'red', deck: ['duckxel_sword_man'] });
+    const running = room.step();
+    room.disconnect('player-b');
+    const paused = room.step();
+    assert.equal(paused.paused, true);
+    assert.equal(paused.tick, running.tick, 'simulation tick must freeze while a player reconnects');
+    assert.equal(paused.remainingMs, running.remainingMs, 'battle timer must freeze while a player reconnects');
+    assert.deepEqual(room.enqueue({
+        type: 'spawn', playerId: 'player-a', seq: 1, unitKey: 'duckxel_sword_man', x: 180, y: 500, handIndex: 0,
+    }), { accepted: false, reason: 'match_paused' });
+
+    now += 44_000;
+    assert.equal(room.step().state, 'running');
+    const rejoined = room.join({ playerId: 'player-b', team: 'red', deck: ['duckxel_sword_man'] });
+    assert.equal(rejoined.paused, false);
+    assert.equal(room.step().tick, running.tick + 1, 'simulation must resume after reconnect');
+
+    room.disconnect('player-b');
+    now += 45_001;
+    const timedOut = room.step();
+    assert.equal(timedOut.state, 'finished');
+    assert.equal(timedOut.winner, 'blue');
+    assert.equal(timedOut.finishReason, 'disconnect_timeout');
+
+    now = 100_000;
+    const abandoned = new AuthoritativeBattleRoom('room-both-disconnected', () => now);
+    abandoned.join({ playerId: 'player-a', team: 'blue', deck: ['duckxel_sword_man'] });
+    abandoned.join({ playerId: 'player-b', team: 'red', deck: ['duckxel_sword_man'] });
+    abandoned.disconnect('player-a');
+    now += 5_000;
+    abandoned.disconnect('player-b');
+    now += 40_001;
+    assert.equal(abandoned.step().state, 'running', 'both players must receive their complete reconnect grace');
+    now += 5_000;
+    const abandonedResult = abandoned.step();
+    assert.equal(abandonedResult.state, 'finished');
+    assert.equal(abandonedResult.winner, 'draw', 'simultaneous abandonment must not arbitrarily award one team');
 }
 
 async function testIdempotentProgression() {

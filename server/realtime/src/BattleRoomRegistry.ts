@@ -24,11 +24,25 @@ export default class BattleRoomRegistry {
         this.rooms.get(roomId)?.disconnect(playerId);
     }
 
-    public tick(): BattleSnapshot[] {
-        const snapshots = [...this.rooms.values()].map((room) => room.step());
+    public tick(options: { includeRunning?: boolean; includePaused?: boolean } = {}): BattleSnapshot[] {
+        const includeRunning = options.includeRunning ?? true;
+        const includePaused = options.includePaused ?? true;
+        const snapshots: BattleSnapshot[] = [];
         const now = Date.now();
-        for (const snapshot of snapshots) {
-            if (snapshot.state === 'finished') this.finishedAt.set(snapshot.roomId, this.finishedAt.get(snapshot.roomId) ?? now);
+        for (const room of this.rooms.values()) {
+            const previousState = room.getState();
+            room.advance();
+            const state = room.getState();
+            if (state === 'finished') {
+                const firstFinishedSnapshot = !this.finishedAt.has(room.roomId);
+                this.finishedAt.set(room.roomId, this.finishedAt.get(room.roomId) ?? now);
+                if (firstFinishedSnapshot) snapshots.push(room.snapshot());
+                continue;
+            }
+            if (state !== 'running') continue;
+            if ((room.isPaused() && includePaused) || (!room.isPaused() && includeRunning) || state !== previousState) {
+                snapshots.push(room.snapshot());
+            }
         }
         for (const [roomId, finishedAt] of this.finishedAt) {
             if (now - finishedAt < 5 * 60 * 1000) continue;

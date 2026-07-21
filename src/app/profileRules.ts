@@ -1,11 +1,16 @@
 import { UNIT_FACTIONS, UNIT_TYPES } from '../data/UnitData';
+import { isDuckxelAssetUnit } from '../data/DuckxelAnimationCatalog';
 import type { PlayerProfile } from './types';
 
 export const MAX_DECK_SIZE = 8;
 
 export function sanitizeDeck(deck: string[]): string[] {
     const validKeys = new Set(
-        Object.keys(UNIT_TYPES).filter((key) => UNIT_FACTIONS[key] && !UNIT_FACTIONS[key].isHidden)
+        Object.keys(UNIT_TYPES).filter((key) => (
+            UNIT_FACTIONS[key]
+            && !UNIT_FACTIONS[key].isHidden
+            && isDuckxelAssetUnit(key)
+        ))
     );
     return [...new Set(deck.filter((key) => validKeys.has(key)))].slice(0, MAX_DECK_SIZE);
 }

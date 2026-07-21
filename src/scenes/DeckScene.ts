@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { configureLogicalCamera, getLayout, getPointerLogicalPosition } from '../core/Resolution';
 import { UNIT_TYPES, UNIT_FACTIONS, FACTION_COLORS, CATEGORY_COLORS } from '../data/UnitData';
+import { DUCKXEL_UNIT_KEYS } from '../data/DuckxelAnimationCatalog';
 import type { Faction, UnitCategory } from '../data/UnitData';
 import { addBottomNav, addButton, addGameBackground, addHeaderBar, addSlotFrame, addToastPanel, playScreenIntro, UI_FONT, TITLE_FONT } from '../ui/GameSkin';
 import { ko } from '../i18n/ko';
@@ -288,12 +289,12 @@ export default class DeckScene extends Phaser.Scene {
     }
 
     private initCards() {
-        const unitKeys = Object.keys(UNIT_TYPES).filter((key) => UNIT_FACTIONS[key] && !UNIT_FACTIONS[key].isHidden);
-        const pinnedUnits = ['skeleton_swordsman', 'spear_goblin', 'royal_giant', 'hog_rider', 'duckxel_barbarian', 'duckxel_sword_man', 'duckxel_muradin'].filter((key) => unitKeys.includes(key));
-        this.selectedDeck = [
-            ...pinnedUnits,
-            ...unitKeys.filter((key) => !pinnedUnits.includes(key)),
-        ].slice(0, 8);
+        const unitKeys = DUCKXEL_UNIT_KEYS.filter((key) => (
+            UNIT_TYPES[key]
+            && UNIT_FACTIONS[key]
+            && !UNIT_FACTIONS[key].isHidden
+        ));
+        this.selectedDeck = unitKeys.slice(0, 8);
         this.cards = unitKeys.map((key) => ({
             unitKey: key,
             selected: this.selectedDeck.includes(key),

@@ -186,6 +186,29 @@ export const DUCKXEL_ASSET_PROFILES: Record<string, DuckxelAssetProfile> = {
             },
         },
     }),
+    duckxel_web_acrobat: createProfile({
+        unitKey: 'duckxel_web_acrobat',
+        assetFolder: 'web_acrobat',
+        baseFile: 'web_acrobat_red.png',
+        displaySize: 64,
+        walkFrameCounts: { 'north-east': 6, 'north-west': 6, 'south-east': 6, 'south-west': 6 },
+        walkFps: fps(10, 10, 10, 10),
+        attackFrameCounts: { 'north-east': 4, 'north-west': 4, 'south-east': 4, 'south-west': 4 },
+        attackFps: fps(10, 10, 10, 10),
+        skill: {
+            label: '거미줄 포획',
+            folder: 'web_acrobat_skill',
+            textureSegment: '_skill',
+            loop: false,
+            replayDelayMs: 900,
+            directions: {
+                'north-east': { frameCount: 9, fps: 9 },
+                'north-west': { frameCount: 9, fps: 9 },
+                'south-east': { frameCount: 9, fps: 9 },
+                'south-west': { frameCount: 9, fps: 9 },
+            },
+        },
+    }),
 };
 
 export const DUCKXEL_UNIT_KEYS = Object.freeze(Object.keys(DUCKXEL_ASSET_PROFILES));

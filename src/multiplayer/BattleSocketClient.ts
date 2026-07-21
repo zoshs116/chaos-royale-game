@@ -4,6 +4,8 @@ export interface RemoteBattleSnapshot {
     roomId: string;
     tick: number;
     state: 'waiting' | 'running' | 'finished';
+    paused: boolean;
+    disconnectGraceRemainingMs: number | null;
     remainingMs: number;
     blueElixir: number;
     redElixir: number;
@@ -51,6 +53,15 @@ export interface RemoteBattleSnapshot {
         directionY: number;
         targetId: string;
     }>;
+    skillZones: Array<{
+        id: string;
+        skillKey: string;
+        team: 'blue' | 'red';
+        x: number;
+        y: number;
+        radius: number;
+        remainingMs: number;
+    }>;
     towers: Array<{
         id: string;
         team: 'blue' | 'red';
@@ -62,6 +73,7 @@ export interface RemoteBattleSnapshot {
         active: boolean;
     }>;
     winner: 'blue' | 'red' | 'draw' | null;
+    finishReason: 'king_destroyed' | 'time_limit' | 'forfeit' | 'disconnect_timeout' | null;
 }
 
 interface BattleSocketOptions {
@@ -74,6 +86,13 @@ interface BattleSocketOptions {
     onSnapshot: (snapshot: RemoteBattleSnapshot, baseState: SimulationBaseState) => void;
     onCommandResult?: (seq: number, accepted: boolean, reason?: string) => void;
     onConnectionState?: (state: 'connecting' | 'connected' | 'reconnecting' | 'closed') => void;
+    onLatency?: (latencyMs: number) => void;
+    onServerError?: (code: string, message: string) => void;
+}
+
+interface PendingMessage {
+    payload: string;
+    sent: boolean;
 }
 
 export default class BattleSocketClient {
@@ -82,6 +101,10 @@ export default class BattleSocketClient {
     private reconnectTimer: number | null = null;
     private reconnectAttempt = 0;
     private closedByClient = false;
+    private joined = false;
+    private joinTimer: number | null = null;
+    private pingTimer: number | null = null;
+    private readonly pendingMessages = new Map<number, PendingMessage>();
 
     constructor(options: BattleSocketOptions) {
         this.options = options;
@@ -93,9 +116,10 @@ export default class BattleSocketClient {
     }
 
     public sendInput(command: InputCmd): boolean {
-        if (this.socket?.readyState !== WebSocket.OPEN) return false;
+        if (this.closedByClient) return false;
+        let payload: string;
         if (command.action === 'cast_active_skill') {
-            this.socket.send(JSON.stringify({
+            payload = JSON.stringify({
                 type: 'command',
                 roomId: this.options.roomId,
                 command: {
@@ -105,29 +129,31 @@ export default class BattleSocketClient {
                     unitId: command.payload.unitId,
                     skillKey: command.payload.skillKey,
                 },
-            }));
-            return true;
+            });
+        } else {
+            if (command.action !== 'spawn_unit') return false;
+            payload = JSON.stringify({
+                type: 'command',
+                roomId: this.options.roomId,
+                command: {
+                    type: 'spawn',
+                    playerId: this.options.playerId,
+                    seq: command.seq,
+                    unitKey: command.payload.unitKey,
+                    x: this.options.team === 'blue' ? command.payload.x : 360 - command.payload.x,
+                    y: this.options.team === 'blue' ? command.payload.y : 678 - command.payload.y,
+                    handIndex: command.payload.handIndex,
+                },
+            });
         }
-        if (command.action !== 'spawn_unit') return false;
-        this.socket.send(JSON.stringify({
-            type: 'command',
-            roomId: this.options.roomId,
-            command: {
-                type: 'spawn',
-                playerId: this.options.playerId,
-                seq: command.seq,
-                unitKey: command.payload.unitKey,
-                x: this.options.team === 'blue' ? command.payload.x : 360 - command.payload.x,
-                y: this.options.team === 'blue' ? command.payload.y : 678 - command.payload.y,
-                handIndex: command.payload.handIndex,
-            },
-        }));
+        this.pendingMessages.set(command.seq, { payload, sent: false });
+        this.flushPendingMessages();
         return true;
     }
 
     public sendForfeit(seq: number): boolean {
-        if (this.socket?.readyState !== WebSocket.OPEN) return false;
-        this.socket.send(JSON.stringify({
+        if (this.closedByClient) return false;
+        const payload = JSON.stringify({
             type: 'command',
             roomId: this.options.roomId,
             command: {
@@ -135,20 +161,29 @@ export default class BattleSocketClient {
                 playerId: this.options.playerId,
                 seq,
             },
-        }));
+        });
+        this.pendingMessages.set(seq, { payload, sent: false });
+        this.flushPendingMessages();
         return true;
     }
 
     public close(): void {
         this.closedByClient = true;
         if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+        if (this.joinTimer !== null) window.clearTimeout(this.joinTimer);
+        if (this.pingTimer !== null) window.clearInterval(this.pingTimer);
+        this.reconnectTimer = null;
+        this.joinTimer = null;
+        this.pingTimer = null;
+        this.joined = false;
+        this.pendingMessages.clear();
         this.socket?.close();
         this.socket = null;
         this.options.onConnectionState?.('closed');
     }
 
     public isConnected(): boolean {
-        return this.socket?.readyState === WebSocket.OPEN;
+        return this.socket?.readyState === WebSocket.OPEN && this.joined;
     }
 
     private openSocket(): void {
@@ -156,7 +191,6 @@ export default class BattleSocketClient {
         const socket = new WebSocket(this.options.url);
         this.socket = socket;
         socket.addEventListener('open', async () => {
-            this.reconnectAttempt = 0;
             const token = await this.options.tokenProvider?.();
             if (socket.readyState !== WebSocket.OPEN) return;
             socket.send(JSON.stringify({
@@ -169,7 +203,9 @@ export default class BattleSocketClient {
                     deck: this.options.deck,
                 },
             }));
-            this.options.onConnectionState?.('connected');
+            this.joinTimer = window.setTimeout(() => {
+                if (!this.joined && socket.readyState === WebSocket.OPEN) socket.close();
+            }, 10_000);
         });
         socket.addEventListener('message', (event) => {
             const message = JSON.parse(String(event.data)) as {
@@ -178,9 +214,24 @@ export default class BattleSocketClient {
                 seq?: number;
                 accepted?: boolean;
                 reason?: string;
+                code?: string;
+                message?: string;
+                sentAt?: number;
             };
             if ((message.type === 'joined' || message.type === 'snapshot') && message.snapshot) {
                 const snapshot = message.snapshot;
+                if (message.type === 'joined') {
+                    this.joined = true;
+                    this.reconnectAttempt = 0;
+                    if (this.joinTimer !== null) window.clearTimeout(this.joinTimer);
+                    this.joinTimer = null;
+                    this.options.onConnectionState?.('connected');
+                    this.startPingLoop();
+                }
+                const acknowledgedSeq = snapshot.ackByPlayer[this.options.playerId] ?? 0;
+                for (const seq of this.pendingMessages.keys()) {
+                    if (seq <= acknowledgedSeq) this.pendingMessages.delete(seq);
+                }
                 const localIsBlue = this.options.team === 'blue';
                 this.options.onSnapshot(snapshot, {
                     unitCount: 0,
@@ -190,11 +241,25 @@ export default class BattleSocketClient {
                     blueCrowns: localIsBlue ? snapshot.blueCrowns : snapshot.redCrowns,
                     redCrowns: localIsBlue ? snapshot.redCrowns : snapshot.blueCrowns,
                 });
+                if (message.type === 'joined') this.flushPendingMessages();
             } else if (message.type === 'command_result') {
+                if (typeof message.seq === 'number') this.pendingMessages.delete(message.seq);
                 this.options.onCommandResult?.(message.seq ?? -1, message.accepted === true, message.reason);
+            } else if (message.type === 'pong' && typeof message.sentAt === 'number') {
+                this.options.onLatency?.(Math.max(0, Date.now() - message.sentAt));
+            } else if (message.type === 'error') {
+                this.options.onServerError?.(message.code ?? 'server_error', message.message ?? 'server error');
             }
         });
-        socket.addEventListener('close', () => this.scheduleReconnect());
+        socket.addEventListener('close', () => {
+            this.joined = false;
+            for (const pending of this.pendingMessages.values()) pending.sent = false;
+            if (this.joinTimer !== null) window.clearTimeout(this.joinTimer);
+            if (this.pingTimer !== null) window.clearInterval(this.pingTimer);
+            this.joinTimer = null;
+            this.pingTimer = null;
+            this.scheduleReconnect();
+        });
         socket.addEventListener('error', () => socket.close());
     }
 
@@ -207,5 +272,22 @@ export default class BattleSocketClient {
             this.reconnectTimer = null;
             this.openSocket();
         }, delay);
+    }
+
+    private flushPendingMessages(): void {
+        if (!this.joined || this.socket?.readyState !== WebSocket.OPEN) return;
+        for (const pending of this.pendingMessages.values()) {
+            if (pending.sent) continue;
+            this.socket.send(pending.payload);
+            pending.sent = true;
+        }
+    }
+
+    private startPingLoop(): void {
+        if (this.pingTimer !== null) window.clearInterval(this.pingTimer);
+        this.pingTimer = window.setInterval(() => {
+            if (!this.joined || this.socket?.readyState !== WebSocket.OPEN) return;
+            this.socket.send(JSON.stringify({ type: 'ping', sentAt: Date.now() }));
+        }, 5_000);
     }
 }

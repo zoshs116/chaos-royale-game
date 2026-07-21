@@ -234,6 +234,11 @@ export default class MainScene extends Phaser.Scene {
     private remoteNextUnitKey: string | null = null;
     private remoteResultDispatched = false;
     private remoteProjectileVisuals = new Map<string, RemoteProjectileVisual>();
+    private remoteSkillZoneVisuals = new Map<string, Phaser.GameObjects.Image>();
+    private remotePendingSpawnVisuals = new Map<number, Phaser.GameObjects.Container>();
+    private remoteConnectionLabel: Phaser.GameObjects.Text | null = null;
+    private remoteConnectionState: 'connecting' | 'connected' | 'reconnecting' | 'closed' = 'closed';
+    private lastRemoteSnapshotTick: number | null = null;
 
     constructor() {
         super({ key: 'main-scene' });
@@ -329,6 +334,10 @@ export default class MainScene extends Phaser.Scene {
             this.remoteAuthoritative = false;
             this.friendlyRemoteMode = false;
             this.clearRemoteProjectileVisuals();
+            this.clearRemoteSkillZoneVisuals();
+            this.clearRemotePendingSpawnVisuals();
+            this.remoteConnectionLabel?.destroy();
+            this.remoteConnectionLabel = null;
             this.activeSkillButton?.destroy();
             window.removeEventListener('chaos:battle-forfeit', onExternalForfeit);
         });
@@ -581,10 +590,12 @@ export default class MainScene extends Phaser.Scene {
     }
 
     private rejectReasonLabel(reason?: string) {
-        if (reason === 'insufficient_elixir') return 'NOT ENOUGH ELIXIR';
-        if (reason === 'invalid_spawn_zone') return 'DROP ON YOUR SIDE';
+        if (reason === 'insufficient_elixir' || reason === 'not_enough_elixir') return '엘릭서가 부족합니다';
+        if (reason === 'invalid_spawn_zone' || reason === 'invalid_spawn_position') return '아군 진영에 배치하세요';
+        if (reason === 'match_paused') return '상대 재접속을 기다리는 중입니다';
+        if (reason === 'socket_not_connected') return '서버 연결을 확인하세요';
         if (reason === 'game_over') return ko.battle.ended;
-        return 'CANNOT DEPLOY';
+        return '배치할 수 없습니다';
     }
 
     private resetUiState() {
@@ -935,6 +946,7 @@ export default class MainScene extends Phaser.Scene {
             if (this.friendlyRemoteMode) {
                 this.inputQueue.pop();
                 this.remoteCommandActionBySeq.set(seq, 'spawn_unit');
+                this.createRemotePendingSpawnVisual(seq, command.payload.x, command.payload.y, command.payload.unitKey);
                 if (typeof command.payload.handIndex === 'number') {
                     this.remotePendingHandBySeq.set(seq, command.payload.handIndex);
                 }
@@ -1139,6 +1151,7 @@ export default class MainScene extends Phaser.Scene {
             onSnapshot: (snapshot, state) => {
                 this.remoteAuthoritative = snapshot.state !== 'waiting';
                 this.applyRemoteBattleSnapshot(snapshot, context);
+                this.updateRemoteConnectionLabel(snapshot);
                 this.clientSync.ingestSnapshot(
                     {
                         tick: snapshot.tick,
@@ -1152,6 +1165,14 @@ export default class MainScene extends Phaser.Scene {
                 }
             },
             onCommandResult: (seq, accepted, reason) => this.resolveRemoteCommand(seq, accepted, reason),
+            onConnectionState: (state) => {
+                this.remoteConnectionState = state;
+                if (state === 'connecting') this.showRemoteConnectionLabel('서버 연결 중...');
+                else if (state === 'reconnecting') this.showRemoteConnectionLabel('연결 복구 중...');
+                else if (state === 'closed') this.showRemoteConnectionLabel('연결 종료');
+                else this.hideRemoteConnectionLabel();
+            },
+            onServerError: (code) => this.showRemoteConnectionLabel(`서버 오류: ${code}`),
         });
         this.battleSocket.connect();
     }
@@ -1161,8 +1182,15 @@ export default class MainScene extends Phaser.Scene {
         const mirror = context.localTeam === 'red';
         const localPlayer = snapshot.players.find((player) => player.playerId === context.playerId);
         if (localPlayer) this.syncRemoteHand(localPlayer.hand, localPlayer.nextUnitKey);
+        const acknowledgedSeq = snapshot.ackByPlayer[context.playerId ?? ''] ?? 0;
+        this.clearAcknowledgedSpawnVisuals(acknowledgedSeq);
+        const snapshotDelta = this.lastRemoteSnapshotTick === null || snapshot.tick <= this.lastRemoteSnapshotTick
+            ? 66
+            : Math.max(33, ((snapshot.tick - this.lastRemoteSnapshotTick) * 1000) / 30);
+        this.lastRemoteSnapshotTick = snapshot.tick;
         const remoteIds = new Set(snapshot.units.map((unit) => unit.id));
         const currentUnits = this.entityManager.getUnits().filter((unit) => !unit.isTower);
+        const currentById = new Map(currentUnits.filter((unit) => unit.active).map((unit) => [unit.id, unit]));
         for (const unit of currentUnits) {
             if (!remoteIds.has(unit.id)) unit.destroy();
         }
@@ -1171,15 +1199,16 @@ export default class MainScene extends Phaser.Scene {
             const visualTeam = remote.team === context.localTeam ? 'blue' : 'red';
             const x = mirror ? CONSTANTS.SCREEN_WIDTH - remote.x : remote.x;
             const y = mirror ? CONSTANTS.TOWERS.BLUE_KING.y + CONSTANTS.TOWERS.RED_KING.y - remote.y : remote.y;
-            let unit = this.entityManager.getUnits().find((candidate) => candidate.id === remote.id && candidate.active) ?? null;
+            let unit = currentById.get(remote.id) ?? null;
             if (!unit) {
                 unit = this.entityManager.spawnRemoteUnit(x, y, visualTeam, remote.unitKey, remote.id);
+                if (unit) currentById.set(remote.id, unit);
             }
             if (!unit) continue;
             unit.maxHp = remote.maxHp;
             const directionX = mirror ? -remote.directionX : remote.directionX;
             const directionY = mirror ? -remote.directionY : remote.directionY;
-            unit.applyRemoteVisualState(x, y, remote.hp, remote.state, 66, {
+            unit.applyRemoteVisualState(x, y, remote.hp, remote.state, snapshotDelta, {
                 attackSerial: remote.attackSerial,
                 jumpSerial: remote.jumpSerial,
                 directionX,
@@ -1218,6 +1247,7 @@ export default class MainScene extends Phaser.Scene {
                 mirror ? -projectile.directionY : projectile.directionY,
             );
         }
+        this.syncRemoteSkillZoneVisuals(snapshot, context, mirror);
 
         this.applyingRemoteSnapshot = true;
         try {
@@ -1240,12 +1270,133 @@ export default class MainScene extends Phaser.Scene {
         this.elixirManager.setElixirForDebug(context.localTeam === 'blue' ? snapshot.blueElixir : snapshot.redElixir);
     }
 
+    private createRemotePendingSpawnVisual(seq: number, x: number, y: number, unitKey: string) {
+        this.removeRemotePendingSpawnVisual(seq, false);
+        const marker = this.add.container(x, y);
+        marker.setDepth(CONSTANTS.DEPTH.UNIT + y * 0.09 + 0.5);
+        const shadow = this.add.ellipse(0, 10, 34, 11, 0x000000, 0.24);
+        const image = this.add.image(0, -10, this.resolvePlacementGhostTexture(unitKey));
+        const size = this.getPlacementGhostSize(unitKey);
+        image.setDisplaySize(size, size);
+        image.setAlpha(0.46);
+        image.setTint(0xbbe9ff);
+        const ring = this.add.circle(0, 0, 24, 0x6cd4ff, 0.08);
+        ring.setStrokeStyle(2, 0xbbe9ff, 0.62);
+        marker.add([shadow, ring, image]);
+        this.remotePendingSpawnVisuals.set(seq, marker);
+        this.tweens.add({
+            targets: ring,
+            scaleX: 1.12,
+            scaleY: 1.12,
+            alpha: 0.28,
+            duration: 360,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut',
+        });
+    }
+
+    private clearAcknowledgedSpawnVisuals(acknowledgedSeq: number) {
+        for (const seq of this.remotePendingSpawnVisuals.keys()) {
+            if (seq <= acknowledgedSeq) this.removeRemotePendingSpawnVisual(seq, false);
+        }
+    }
+
+    private removeRemotePendingSpawnVisual(seq: number, rejected: boolean) {
+        const marker = this.remotePendingSpawnVisuals.get(seq);
+        if (!marker) return;
+        this.remotePendingSpawnVisuals.delete(seq);
+        this.tweens.killTweensOf(marker.list);
+        this.tweens.add({
+            targets: marker,
+            alpha: 0,
+            scaleX: rejected ? 0.72 : 1.08,
+            scaleY: rejected ? 0.72 : 1.08,
+            duration: rejected ? 120 : 90,
+            ease: rejected ? 'Sine.easeIn' : 'Sine.easeOut',
+            onComplete: () => marker.destroy(),
+        });
+    }
+
+    private clearRemotePendingSpawnVisuals() {
+        for (const marker of this.remotePendingSpawnVisuals.values()) marker.destroy();
+        this.remotePendingSpawnVisuals.clear();
+    }
+
+    private updateRemoteConnectionLabel(snapshot: RemoteBattleSnapshot) {
+        if (snapshot.paused) {
+            const seconds = Math.max(0, Math.ceil((snapshot.disconnectGraceRemainingMs ?? 0) / 1000));
+            this.showRemoteConnectionLabel(`상대 재접속 대기 ${seconds}초`);
+            return;
+        }
+        if (this.remoteConnectionState === 'connected') this.hideRemoteConnectionLabel();
+    }
+
+    private showRemoteConnectionLabel(message: string) {
+        if (!this.remoteConnectionLabel) {
+            this.remoteConnectionLabel = this.add.text(CONSTANTS.SCREEN_WIDTH / 2, 76, message, {
+                fontFamily: GAME_FONT,
+                fontSize: '12px',
+                fontStyle: 'bold',
+                color: '#ffffff',
+                backgroundColor: '#111827',
+                padding: { x: 10, y: 5 },
+            });
+            this.remoteConnectionLabel.setOrigin(0.5);
+            this.remoteConnectionLabel.setDepth(CONSTANTS.DEPTH.OVERLAY + 20);
+            this.remoteConnectionLabel.setScrollFactor(0);
+        }
+        this.remoteConnectionLabel.setText(message).setVisible(true);
+    }
+
+    private hideRemoteConnectionLabel() {
+        this.remoteConnectionLabel?.setVisible(false);
+    }
+
     private clearRemoteProjectileVisuals() {
         for (const visual of this.remoteProjectileVisuals.values()) visual.destroy();
         this.remoteProjectileVisuals.clear();
     }
 
-    private resolveRemoteCommand(seq: number, accepted: boolean, _reason?: string) {
+    private syncRemoteSkillZoneVisuals(
+        snapshot: RemoteBattleSnapshot,
+        context: BattleLaunchContext,
+        mirror: boolean,
+    ) {
+        const activeIds = new Set(snapshot.skillZones.map((zone) => zone.id));
+        for (const [id, visual] of this.remoteSkillZoneVisuals) {
+            if (activeIds.has(id)) continue;
+            visual.destroy();
+            this.remoteSkillZoneVisuals.delete(id);
+        }
+        for (const zone of snapshot.skillZones) {
+            if (zone.skillKey !== 'web_snare') continue;
+            let visual = this.remoteSkillZoneVisuals.get(zone.id);
+            if (!visual) {
+                const texture = this.textures.exists('vfx_web_acrobat_zone_2')
+                    ? 'vfx_web_acrobat_zone_2'
+                    : 'vfx_web_acrobat_zone_0';
+                visual = this.add.image(0, 0, texture)
+                    .setDepth(CONSTANTS.DEPTH.UNIT_SHADOW + 1)
+                    .setAlpha(0.9)
+                    .setDisplaySize(zone.radius * 2.15, zone.radius * 2.15);
+                this.remoteSkillZoneVisuals.set(zone.id, visual);
+            }
+            visual.setPosition(
+                mirror ? CONSTANTS.SCREEN_WIDTH - zone.x : zone.x,
+                mirror ? CONSTANTS.TOWERS.BLUE_KING.y + CONSTANTS.TOWERS.RED_KING.y - zone.y : zone.y,
+            );
+            visual.setFlipX(zone.team !== context.localTeam);
+            visual.setAlpha(Phaser.Math.Clamp(0.45 + zone.remainingMs / 10_000, 0.45, 0.92));
+        }
+    }
+
+    private clearRemoteSkillZoneVisuals() {
+        for (const visual of this.remoteSkillZoneVisuals.values()) visual.destroy();
+        this.remoteSkillZoneVisuals.clear();
+    }
+
+    private resolveRemoteCommand(seq: number, accepted: boolean, reason?: string) {
         const reserved = this.predictedCostBySeq.get(seq);
         if (reserved !== undefined) {
             this.predictedCostBySeq.delete(seq);
@@ -1257,7 +1408,11 @@ export default class MainScene extends Phaser.Scene {
         const action = this.remoteCommandActionBySeq.get(seq) ?? 'set_blue_elixir';
         this.remoteCommandActionBySeq.delete(seq);
         if (accepted) this.predictionAcceptedCount += 1;
-        else this.predictionRejectedCount += 1;
+        else {
+            this.predictionRejectedCount += 1;
+            this.removeRemotePendingSpawnVisual(seq, true);
+            if (reason) this.effectManager.playUiText(CONSTANTS.SCREEN_WIDTH / 2, 112, this.rejectReasonLabel(reason), '#ffb4c4');
+        }
         this.markCommandProcessed({ tick: this.simulationTick, seq, action }, accepted);
         this.refreshHandAffordability();
     }
@@ -1311,6 +1466,12 @@ export default class MainScene extends Phaser.Scene {
 
     update(time: number, delta: number) {
         this.mapRenderer.update(time, delta);
+        if (this.friendlyRemoteMode) {
+            for (const unit of this.entityManager.getUnits()) {
+                if (!unit.isTower && unit.active) unit.updateRemoteVisual(delta);
+            }
+            for (const visual of this.remoteProjectileVisuals.values()) visual.updateRemoteVisual(delta);
+        }
         this.activeSkillButton?.update();
         if (this.forfeitDialog) {
             this.hud.update();

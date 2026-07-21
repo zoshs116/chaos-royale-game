@@ -101,6 +101,10 @@ export default class Unit extends Phaser.GameObjects.Container {
     private remoteAttackSerial: number = 0;
     private remoteJumpSerial: number = 0;
     private remoteElevation: number = 0;
+    private remoteTargetX: number | null = null;
+    private remoteTargetY: number | null = null;
+    private remoteVelocityX: number = 0;
+    private remoteVelocityY: number = 0;
     private isRiverJumping: boolean = false;
     private hogJumpTarget: { x: number; y: number } | null = null;
     private hogJumpCooldown: number = 0;
@@ -659,19 +663,22 @@ export default class Unit extends Phaser.GameObjects.Container {
         }
     ) {
         if (!this.active || this.state === UnitState.DIE) return;
-        const previousX = this.x;
-        const previousY = this.y;
-        this.setPosition(x, y);
+        const previousTargetX = this.remoteTargetX ?? this.x;
+        const previousTargetY = this.remoteTargetY ?? this.y;
+        const distanceToSnapshot = Phaser.Math.Distance.Between(this.x, this.y, x, y);
+        if (this.remoteTargetX === null || this.remoteTargetY === null || distanceToSnapshot > 96) {
+            this.setPosition(x, y);
+        }
+        this.remoteTargetX = x;
+        this.remoteTargetY = y;
         this.stats.hp = Phaser.Math.Clamp(hp, 0, this.maxHp);
-        const body = this.body as Phaser.Physics.Arcade.Body;
         const scale = 1000 / Math.max(1, delta);
-        const velocityX = Math.abs(x - previousX) > 0.001
-            ? (x - previousX) * scale
+        this.remoteVelocityX = Math.abs(x - previousTargetX) > 0.001
+            ? (x - previousTargetX) * scale
             : (remote?.directionX ?? 0) * (remoteState === 'moving' ? this.stats.speed : 0);
-        const velocityY = Math.abs(y - previousY) > 0.001
-            ? (y - previousY) * scale
+        this.remoteVelocityY = Math.abs(y - previousTargetY) > 0.001
+            ? (y - previousTargetY) * scale
             : (remote?.directionY ?? 0) * (remoteState === 'moving' ? this.stats.speed : 0);
-        body.setVelocity(velocityX, velocityY);
         this.remoteElevation = Math.max(0, remote?.elevation ?? 0);
         if (remote && remote.jumpSerial > this.remoteJumpSerial) {
             this.remoteJumpSerial = remote.jumpSerial;
@@ -687,13 +694,30 @@ export default class Unit extends Phaser.GameObjects.Container {
                 : remoteState === 'spawning' ? UnitState.SPAWN : UnitState.IDLE;
         this.updateHpBar();
         this.updateSortDepth();
-        this.animateVisual(delta);
         if (this.sprite && this.remoteElevation > 0) {
             this.sprite.y = -7 - this.remoteElevation;
             this.shadow.setAlpha(0.12);
         } else {
             this.shadow.setAlpha(this.duckxelBattleProfile?.shadow.alpha ?? 0.28);
         }
+    }
+
+    public updateRemoteVisual(delta: number) {
+        if (!this.active || this.remoteTargetX === null || this.remoteTargetY === null) return;
+        const targetX = this.remoteTargetX;
+        const targetY = this.remoteTargetY;
+        const distance = Phaser.Math.Distance.Between(this.x, this.y, targetX, targetY);
+        if (distance > 0.05) {
+            const alpha = 1 - Math.exp(-Math.max(0, delta) / 72);
+            this.x = Phaser.Math.Linear(this.x, targetX, alpha);
+            this.y = Phaser.Math.Linear(this.y, targetY, alpha);
+            if (distance < 0.35) this.setPosition(targetX, targetY);
+        }
+        const body = this.body as Phaser.Physics.Arcade.Body;
+        body.setVelocity(this.remoteVelocityX, this.remoteVelocityY);
+        this.updateSortDepth();
+        this.animateVisual(delta);
+        if (this.sprite && this.remoteElevation > 0) this.sprite.y = -7 - this.remoteElevation;
         body.setVelocity(0, 0);
     }
 
@@ -960,7 +984,7 @@ export default class Unit extends Phaser.GameObjects.Container {
         if (this.activeSkillCooldownRemainingMs <= 0 && this.activeSkillPhase !== 'casting') this.activeSkillPhase = 'ready';
     }
 
-    public castActiveSkill(onImpact: (unit: Unit, definition: ActiveSkillDefinition) => void): boolean {
+    public castActiveSkill(onImpact: (unit: Unit, definition: ActiveSkillDefinition, x: number, y: number) => void): boolean {
         if (!this.activeSkillDefinition || !this.duckxelAssetProfile?.previewActions.skill || !this.sprite) return false;
         const castSerial = this.beginActiveSkillRuntime();
         if (castSerial === null) return false;
@@ -969,7 +993,7 @@ export default class Unit extends Phaser.GameObjects.Container {
 
     public playRemoteActiveSkillCast(
         castSerial: number,
-        onImpact: (unit: Unit, definition: ActiveSkillDefinition) => void,
+        onImpact: (unit: Unit, definition: ActiveSkillDefinition, x: number, y: number) => void,
     ): boolean {
         if (!Number.isSafeInteger(castSerial) || castSerial <= this.remoteActiveSkillSerial) return false;
         if (!this.activeSkillDefinition || !this.duckxelAssetProfile?.previewActions.skill || !this.sprite
@@ -983,7 +1007,7 @@ export default class Unit extends Phaser.GameObjects.Container {
 
     private playActiveSkillSequence(
         castSerial: number,
-        onImpact: (unit: Unit, definition: ActiveSkillDefinition) => void,
+        onImpact: (unit: Unit, definition: ActiveSkillDefinition, x: number, y: number) => void,
     ): boolean {
         const definition = this.activeSkillDefinition;
         const profile = this.duckxelAssetProfile;
@@ -1023,10 +1047,19 @@ export default class Unit extends Phaser.GameObjects.Container {
         const baseSpriteY = -7;
         const startX = this.x;
         const startY = this.y;
+        const travelDistance = definition.movementMode === 'backward-vault'
+            ? -definition.forwardDistance
+            : definition.forwardDistance;
         const landing = this.getActiveSkillLandingPoint(
             targetVector.x,
             targetVector.y,
-            definition.forwardDistance,
+            travelDistance,
+        );
+        const effectPoint = this.getActiveSkillEffectPoint(
+            landing,
+            targetVector.x,
+            targetVector.y,
+            definition.effectForwardDistance,
         );
         const motion = { progress: 0 };
 
@@ -1043,12 +1076,22 @@ export default class Unit extends Phaser.GameObjects.Container {
             onUpdate: () => {
                 if (!this.isCurrentActiveSkillCast(castSerial) || !this.sprite) return;
                 const progress = Phaser.Math.Clamp(motion.progress, 0, 1);
-                const travelProgress = Phaser.Math.Easing.Sine.InOut(progress);
+                const backwardVault = definition.movementMode === 'backward-vault';
+                const vaultEnd = 0.72;
+                const vaultProgress = Phaser.Math.Clamp(progress / vaultEnd, 0, 1);
+                const slideProgress = Phaser.Math.Clamp((progress - vaultEnd) / (1 - vaultEnd), 0, 1);
+                const travelProgress = backwardVault
+                    ? progress < vaultEnd
+                        ? Phaser.Math.Linear(0, 0.72, Phaser.Math.Easing.Sine.InOut(vaultProgress))
+                        : Phaser.Math.Linear(0.72, 1, Phaser.Math.Easing.Cubic.Out(slideProgress))
+                    : Phaser.Math.Easing.Sine.InOut(progress);
                 this.x = Phaser.Math.Linear(startX, landing.x, travelProgress);
                 this.y = Phaser.Math.Linear(startY, landing.y, travelProgress);
 
                 let elevation: number;
-                if (progress < 0.42) {
+                if (backwardVault) {
+                    elevation = progress < vaultEnd ? Math.sin(Math.PI * vaultProgress) : 0;
+                } else if (progress < 0.42) {
                     elevation = Phaser.Math.Easing.Cubic.Out(progress / 0.42);
                 } else if (progress < 0.66) {
                     elevation = 1;
@@ -1106,7 +1149,7 @@ export default class Unit extends Phaser.GameObjects.Container {
             this.shadow.setScale(1);
             this.shadow.setAlpha(this.duckxelBattleProfile?.shadow.alpha ?? 0.28);
             (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0).updateFromGameObject();
-            onImpact(this, definition);
+            onImpact(this, definition, effectPoint.x, effectPoint.y);
             if (!this.sprite) return;
             this.scene.tweens.add({
                 targets: this.sprite,
@@ -1152,6 +1195,22 @@ export default class Unit extends Phaser.GameObjects.Container {
         return typeof this.gameMap.projectToWalkable === 'function'
             ? this.gameMap.projectToWalkable(desired.x, desired.y)
             : { x: this.x, y: this.y };
+    }
+
+    private getActiveSkillEffectPoint(
+        landing: { x: number; y: number },
+        directionX: number,
+        directionY: number,
+        distance: number,
+    ) {
+        const fallbackY = this.team === 'blue' ? -1 : 1;
+        const length = Math.hypot(directionX, directionY);
+        const unitX = length > 0.001 ? directionX / length : 0;
+        const unitY = length > 0.001 ? directionY / length : fallbackY;
+        return {
+            x: Phaser.Math.Clamp(landing.x + unitX * distance, 18, CONSTANTS.SCREEN_WIDTH - 18),
+            y: Phaser.Math.Clamp(landing.y + unitY * distance, 24, CONSTANTS.ARENA.UI_START - 38),
+        };
     }
 
     private isCurrentActiveSkillCast(castSerial: number) {

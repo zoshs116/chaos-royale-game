@@ -7,7 +7,8 @@ export type DuckxelBattleUnitKey =
     | 'skeleton_swordsman'
     | 'royal_giant'
     | 'hog_rider'
-    | 'duckxel_muradin';
+    | 'duckxel_muradin'
+    | 'duckxel_web_acrobat';
 
 export type TargetPolicy = 'any-nearest' | 'building-only';
 export type DuckxelBattleBehavior = 'melee-combat' | 'ranged-combat' | 'building-ranged' | 'building-jump';
@@ -202,6 +203,25 @@ export const DUCKXEL_BATTLE_PROFILES: Record<DuckxelBattleUnitKey, DuckxelBattle
         attack: { frameDuration: 100, hitFrame: 2, rangePadding: 18 },
         timing: meleeTiming,
         tracking: meleeTracking,
+        reaction: combatReaction,
+    },
+    duckxel_web_acrobat: {
+        unitKey: 'duckxel_web_acrobat',
+        behavior: 'melee-combat',
+        displaySize: 64,
+        collisionRadius: 12,
+        collisionMass: 1.1,
+        movement: { route: 'ground-bridge', canChangeLane: true },
+        hpBar: { width: 24, y: -20 },
+        shadow: { width: 18, height: 7, y: 9, alpha: 0.26 },
+        targeting: {
+            ...baseAnyTargeting,
+            sightMax: 315,
+            crossLaneCloseRange: 70,
+        },
+        attack: { frameDuration: 100, hitFrame: 2, rangePadding: 17 },
+        timing: { deployDelay: CONSTANTS.GAMEPLAY.SPAWN_DELAY, acquisitionDelay: 80, firstHitDelay: 170 },
+        tracking: { attackExitPadding: 10, leashDistance: 235, returnToLaneDelay: 520 },
         reaction: combatReaction,
     },
     spear_goblin: {

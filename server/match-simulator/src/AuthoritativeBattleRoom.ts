@@ -8,6 +8,7 @@ import {
 
 export type BattleTeam = 'blue' | 'red';
 export type BattleState = 'waiting' | 'running' | 'finished';
+export type BattleFinishReason = 'king_destroyed' | 'time_limit' | 'forfeit' | 'disconnect_timeout';
 export type BattleUnitState = 'spawning' | 'idle' | 'moving' | 'attacking' | 'jumping' | 'stunned' | 'casting';
 
 export interface BattlePlayerConfig {
@@ -76,6 +77,16 @@ export interface BattleProjectileSnapshot {
     targetId: string;
 }
 
+export interface BattleSkillZoneSnapshot {
+    id: string;
+    skillKey: ActiveSkillKey;
+    team: BattleTeam;
+    x: number;
+    y: number;
+    radius: number;
+    remainingMs: number;
+}
+
 export interface BattleTowerSnapshot {
     id: string;
     team: BattleTeam;
@@ -91,6 +102,8 @@ export interface BattleSnapshot {
     roomId: string;
     tick: number;
     state: BattleState;
+    paused: boolean;
+    disconnectGraceRemainingMs: number | null;
     remainingMs: number;
     blueElixir: number;
     redElixir: number;
@@ -111,8 +124,10 @@ export interface BattleSnapshot {
     endedAtUtc: string | null;
     units: BattleUnitSnapshot[];
     projectiles: BattleProjectileSnapshot[];
+    skillZones: BattleSkillZoneSnapshot[];
     towers: BattleTowerSnapshot[];
     winner: BattleTeam | 'draw' | null;
+    finishReason: BattleFinishReason | null;
 }
 
 type PlayerState = BattlePlayerConfig & {
@@ -121,7 +136,7 @@ type PlayerState = BattlePlayerConfig & {
     elixir: number;
     lastSeq: number;
     connected: boolean;
-    disconnectedAtMs: number | null;
+    disconnectedAtRealMs: number | null;
 };
 
 type BattleTarget = BattleUnit | BattleTower;
@@ -157,7 +172,17 @@ type BattleUnit = BattleUnitSnapshot & {
     activeSkillStartY: number;
     activeSkillLandingX: number;
     activeSkillLandingY: number;
+    activeSkillEffectX: number;
+    activeSkillEffectY: number;
     activeSkillNextWaveIndex: number;
+};
+
+type BattleSkillZone = BattleSkillZoneSnapshot & {
+    expiresAtMs: number;
+    nextTickAtMs: number;
+    tickIntervalMs: number;
+    damagePerTick: number;
+    root: boolean;
 };
 
 type BattleTower = BattleTowerSnapshot & {
@@ -180,7 +205,7 @@ type BattleProjectile = BattleProjectileSnapshot & {
 const TICK_RATE = 30;
 const TICK_MS = 1000 / TICK_RATE;
 const BATTLE_DURATION_MS = 180_000;
-const DISCONNECT_GRACE_MS = 15_000;
+const DISCONNECT_GRACE_MS = 45_000;
 const MAX_ELIXIR = 10;
 const START_ELIXIR = 5;
 const ELIXIR_REGEN_MS = 2_800;
@@ -215,6 +240,7 @@ export default class AuthoritativeBattleRoom {
     private readonly players = new Map<string, PlayerState>();
     private readonly units: BattleUnit[] = [];
     private readonly projectiles: BattleProjectile[] = [];
+    private readonly skillZones: BattleSkillZone[] = [];
     private readonly towers: BattleTower[] = TOWER_DEFINITIONS.map((tower) => ({
         ...tower,
         hp: tower.maxHp,
@@ -225,15 +251,20 @@ export default class AuthoritativeBattleRoom {
     private elapsedMs = 0;
     private state: BattleState = 'waiting';
     private winner: BattleSnapshot['winner'] = null;
+    private finishReason: BattleFinishReason | null = null;
     private blueCrowns = 0;
     private redCrowns = 0;
     private unitCounter = 0;
+    private skillZoneCounter = 0;
     private projectileCounter = 0;
     private inputCount = 0;
     private startedAtMs: number | null = null;
     private endedAtMs: number | null = null;
 
-    constructor(public readonly roomId: string) {}
+    constructor(
+        public readonly roomId: string,
+        private readonly now: () => number = Date.now,
+    ) {}
 
     public join(config: BattlePlayerConfig): BattleSnapshot {
         const deck = normalizeDeck(config.deck);
@@ -241,7 +272,7 @@ export default class AuthoritativeBattleRoom {
         if (existing) {
             if (existing.team !== config.team) throw new Error('player team does not match the existing seat');
             existing.connected = true;
-            existing.disconnectedAtMs = null;
+            existing.disconnectedAtRealMs = null;
             return this.snapshot();
         }
         if (this.state === 'finished') throw new Error('match is already finished');
@@ -256,7 +287,7 @@ export default class AuthoritativeBattleRoom {
             elixir: START_ELIXIR,
             lastSeq: 0,
             connected: true,
-            disconnectedAtMs: null,
+            disconnectedAtRealMs: null,
         });
         if (this.players.size === 2) {
             this.state = 'running';
@@ -269,7 +300,7 @@ export default class AuthoritativeBattleRoom {
         const player = this.players.get(playerId);
         if (!player || !player.connected) return;
         player.connected = false;
-        player.disconnectedAtMs = this.elapsedMs;
+        player.disconnectedAtRealMs = this.now();
     }
 
     public enqueue(command: BattleCommand): { accepted: boolean; reason?: string } {
@@ -282,9 +313,10 @@ export default class AuthoritativeBattleRoom {
         player.lastSeq = command.seq;
         this.inputCount += 1;
         if (command.type === 'forfeit') {
-            this.finish(oppositeTeam(player.team));
+            this.finish(oppositeTeam(player.team), 'forfeit');
             return { accepted: true };
         }
+        if (this.isPausedForReconnect()) return { accepted: false, reason: 'match_paused' };
         if (command.type === 'cast_active_skill') {
             return this.applyCastActiveSkill(player, command);
         }
@@ -292,20 +324,33 @@ export default class AuthoritativeBattleRoom {
     }
 
     public step(): BattleSnapshot {
-        if (this.state !== 'running') return this.snapshot();
+        this.advance();
+        return this.snapshot();
+    }
+
+    public advance(): void {
+        if (this.state !== 'running') return;
+        this.forfeitDisconnectedPlayers();
+        if (this.state !== 'running' || this.isPausedForReconnect()) return;
         this.tick += 1;
         this.elapsedMs += TICK_MS;
-        this.forfeitDisconnectedPlayers();
-        if (this.state !== 'running') return this.snapshot();
         this.regenerateElixir();
         this.resolvePendingAttacks();
         this.updateProjectiles();
+        this.updateActiveSkillZones();
         this.updateUnits();
         this.resolveEntityCollisions();
         this.updateTowers();
         this.removeDeadUnits();
         this.checkFinished();
-        return this.snapshot();
+    }
+
+    public getState(): BattleState {
+        return this.state;
+    }
+
+    public isPaused(): boolean {
+        return this.state === 'running' && this.isPausedForReconnect();
     }
 
     public snapshot(): BattleSnapshot {
@@ -319,10 +364,13 @@ export default class AuthoritativeBattleRoom {
         }
         const blueKing = this.getKing('blue');
         const redKing = this.getKing('red');
+        const disconnectGraceRemainingMs = this.getDisconnectGraceRemainingMs();
         return {
             roomId: this.roomId,
             tick: this.tick,
             state: this.state,
+            paused: this.state === 'running' && disconnectGraceRemainingMs !== null,
+            disconnectGraceRemainingMs,
             remainingMs: Math.max(0, BATTLE_DURATION_MS - this.elapsedMs),
             blueElixir,
             redElixir,
@@ -366,12 +414,19 @@ export default class AuthoritativeBattleRoom {
                 activeSkillStartY: _skillStartY,
                 activeSkillLandingX: _skillLandingX,
                 activeSkillLandingY: _skillLandingY,
+                activeSkillEffectX: _skillEffectX,
+                activeSkillEffectY: _skillEffectY,
                 activeSkillNextWaveIndex: _skillWaveIndex,
                 ...unit
             }) => ({ ...unit })),
             projectiles: this.projectiles.map(({ attackerId: _attacker, damage: _damage, splashRadius: _splash, speed: _speed, ageMs: _age, maxLifetimeMs: _lifetime, ...projectile }) => ({ ...projectile })),
+            skillZones: this.skillZones.map(({ expiresAtMs: _expires, nextTickAtMs: _nextTick, tickIntervalMs: _interval, damagePerTick: _damage, root: _root, ...zone }) => ({
+                ...zone,
+                remainingMs: Math.max(0, _expires - this.elapsedMs),
+            })),
             towers: this.towers.map(({ damage: _damage, range: _range, collisionRadius: _radius, attackCooldownMs: _cooldown, nextAttackAtMs: _next, ...tower }) => ({ ...tower })),
             winner: this.winner,
+            finishReason: this.finishReason,
         };
     }
 
@@ -444,6 +499,8 @@ export default class AuthoritativeBattleRoom {
                 activeSkillStartY: y,
                 activeSkillLandingX: x,
                 activeSkillLandingY: y,
+                activeSkillEffectX: x,
+                activeSkillEffectY: y,
                 activeSkillNextWaveIndex: 0,
             });
         }
@@ -477,7 +534,11 @@ export default class AuthoritativeBattleRoom {
         }
         const direction = skillDirection(unit.directionX, unit.directionY);
         const timing = definition.timingByDirection[direction];
-        const landing = this.getActiveSkillLandingPoint(unit, definition.forwardDistance);
+        const travelDistance = definition.movementMode === 'backward-vault'
+            ? -definition.forwardDistance
+            : definition.forwardDistance;
+        const landing = this.getActiveSkillLandingPoint(unit, travelDistance);
+        const effectPoint = this.getActiveSkillEffectPoint(unit, landing, definition.effectForwardDistance);
         unit.state = 'casting';
         unit.pendingAttack = null;
         unit.firstHitReadyAtMs = 0;
@@ -491,6 +552,8 @@ export default class AuthoritativeBattleRoom {
         unit.activeSkillStartY = unit.y;
         unit.activeSkillLandingX = landing.x;
         unit.activeSkillLandingY = landing.y;
+        unit.activeSkillEffectX = effectPoint.x;
+        unit.activeSkillEffectY = effectPoint.y;
         unit.activeSkillNextWaveIndex = 0;
         unit.activeSkillCastSerial += 1;
         return { accepted: true };
@@ -574,11 +637,21 @@ export default class AuthoritativeBattleRoom {
         const flightDuration = Math.max(1, unit.activeSkillImpactAtMs - unit.activeSkillStartedAtMs);
         const flightProgress = clamp((this.elapsedMs - unit.activeSkillStartedAtMs) / flightDuration, 0, 1);
         if (flightProgress < 1) {
-            const travelProgress = (1 - Math.cos(Math.PI * flightProgress)) / 2;
+            const backwardVault = definition.movementMode === 'backward-vault';
+            const vaultEnd = 0.72;
+            const vaultProgress = clamp(flightProgress / vaultEnd, 0, 1);
+            const slideProgress = clamp((flightProgress - vaultEnd) / (1 - vaultEnd), 0, 1);
+            const travelProgress = backwardVault
+                ? flightProgress < vaultEnd
+                    ? 0.72 * ((1 - Math.cos(Math.PI * vaultProgress)) / 2)
+                    : 0.72 + 0.28 * (1 - Math.pow(1 - slideProgress, 3))
+                : (1 - Math.cos(Math.PI * flightProgress)) / 2;
             unit.x = lerp(unit.activeSkillStartX, unit.activeSkillLandingX, travelProgress);
             unit.y = lerp(unit.activeSkillStartY, unit.activeSkillLandingY, travelProgress);
             let elevationProgress: number;
-            if (flightProgress < 0.42) {
+            if (backwardVault) {
+                elevationProgress = flightProgress < vaultEnd ? Math.sin(Math.PI * vaultProgress) : 0;
+            } else if (flightProgress < 0.42) {
                 const ascent = flightProgress / 0.42;
                 elevationProgress = 1 - Math.pow(1 - ascent, 3);
             } else if (flightProgress < 0.66) {
@@ -597,6 +670,7 @@ export default class AuthoritativeBattleRoom {
             const wave = definition.impactWaves[unit.activeSkillNextWaveIndex];
             if (this.elapsedMs < unit.activeSkillImpactAtMs + wave.delayAfterLandingMs) break;
             this.resolveActiveSkillImpact(unit, definition, wave);
+            if (unit.activeSkillNextWaveIndex === 0) this.createActiveSkillZone(unit, definition);
             unit.activeSkillNextWaveIndex += 1;
         }
         if (this.elapsedMs < unit.activeSkillEndsAtMs) return;
@@ -610,8 +684,8 @@ export default class AuthoritativeBattleRoom {
         definition: NonNullable<ReturnType<typeof getActiveSkillDefinition>>,
         wave: ActiveSkillImpactWave,
     ): void {
-        const impactX = unit.activeSkillLandingX;
-        const impactY = unit.activeSkillLandingY;
+        const impactX = unit.activeSkillEffectX;
+        const impactY = unit.activeSkillEffectY;
         for (const target of this.units) {
             if (target === unit || target.team === unit.team || target.hp <= 0 || !definition.targetMask.units) continue;
             if (target.profile.movementType === 'air' && !definition.targetMask.air) continue;
@@ -625,6 +699,56 @@ export default class AuthoritativeBattleRoom {
             if (tower.team === unit.team || !tower.active || tower.hp <= 0) continue;
             if (Math.hypot(tower.x - impactX, tower.y - impactY) > wave.radius + tower.collisionRadius) continue;
             this.damageTarget(tower, towerDamage, unit.team);
+        }
+    }
+
+    private createActiveSkillZone(
+        unit: BattleUnit,
+        definition: NonNullable<ReturnType<typeof getActiveSkillDefinition>>,
+    ): void {
+        const persistent = definition.persistentZone;
+        if (!persistent) return;
+        this.skillZones.push({
+            id: `${this.roomId}:skill-zone:${++this.skillZoneCounter}`,
+            skillKey: definition.key,
+            team: unit.team,
+            x: unit.activeSkillEffectX,
+            y: unit.activeSkillEffectY,
+            radius: definition.radius,
+            remainingMs: persistent.durationMs,
+            expiresAtMs: this.elapsedMs + persistent.durationMs,
+            nextTickAtMs: this.elapsedMs + persistent.tickIntervalMs,
+            tickIntervalMs: persistent.tickIntervalMs,
+            damagePerTick: persistent.damagePerTick,
+            root: persistent.root,
+        });
+    }
+
+    private updateActiveSkillZones(): void {
+        for (let index = this.skillZones.length - 1; index >= 0; index -= 1) {
+            const zone = this.skillZones[index];
+            if (this.elapsedMs >= zone.expiresAtMs) {
+                this.skillZones.splice(index, 1);
+                continue;
+            }
+            zone.remainingMs = Math.max(0, zone.expiresAtMs - this.elapsedMs);
+            const targets = this.units.filter((target) => (
+                target.hp > 0
+                && target.team !== zone.team
+                && target.profile.movementType === 'ground'
+                && Math.hypot(target.x - zone.x, target.y - zone.y) <= zone.radius + target.profile.collisionRadius
+            ));
+            if (zone.root) {
+                const rootRefreshMs = Math.max(TICK_MS * 3, 120);
+                for (const target of targets) {
+                    target.stunnedUntilMs = Math.max(target.stunnedUntilMs, this.elapsedMs + rootRefreshMs);
+                    target.pendingAttack = null;
+                }
+            }
+            while (this.elapsedMs >= zone.nextTickAtMs && zone.nextTickAtMs < zone.expiresAtMs) {
+                for (const target of targets) this.damageTarget(target, zone.damagePerTick, zone.team);
+                zone.nextTickAtMs += zone.tickIntervalMs;
+            }
         }
     }
 
@@ -643,6 +767,20 @@ export default class AuthoritativeBattleRoom {
             if (isWalkableGroundPoint(candidate.x, candidate.y)) return candidate;
         }
         return { x: unit.x, y: unit.y };
+    }
+
+    private getActiveSkillEffectPoint(
+        unit: BattleUnit,
+        landing: { x: number; y: number },
+        distance: number,
+    ): { x: number; y: number } {
+        const length = Math.hypot(unit.directionX, unit.directionY);
+        const directionX = length > 0.001 ? unit.directionX / length : 0;
+        const directionY = length > 0.001 ? unit.directionY / length : unit.team === 'blue' ? -1 : 1;
+        return {
+            x: clamp(landing.x + directionX * distance, MIN_X, MAX_X),
+            y: clamp(landing.y + directionY * distance, MIN_Y, MAX_Y),
+        };
     }
 
     private resolvePendingAttacks(): void {
@@ -989,7 +1127,7 @@ export default class AuthoritativeBattleRoom {
         if (tower.type === 'king') {
             if (attackingTeam === 'blue') this.blueCrowns = 3;
             else this.redCrowns = 3;
-            this.finish(attackingTeam);
+            this.finish(attackingTeam, 'king_destroyed');
             return;
         }
         if (attackingTeam === 'blue') this.blueCrowns = Math.min(2, this.blueCrowns + 1);
@@ -1016,22 +1154,43 @@ export default class AuthoritativeBattleRoom {
         if (this.state !== 'running' || this.elapsedMs < BATTLE_DURATION_MS) return;
         const blueHp = this.towers.filter((tower) => tower.team === 'blue').reduce((sum, tower) => sum + Math.max(0, tower.hp), 0);
         const redHp = this.towers.filter((tower) => tower.team === 'red').reduce((sum, tower) => sum + Math.max(0, tower.hp), 0);
-        this.finish(blueHp === redHp ? 'draw' : blueHp > redHp ? 'blue' : 'red');
+        this.finish(blueHp === redHp ? 'draw' : blueHp > redHp ? 'blue' : 'red', 'time_limit');
     }
 
     private forfeitDisconnectedPlayers(): void {
-        for (const player of this.players.values()) {
-            if (player.connected || player.disconnectedAtMs === null) continue;
-            if (this.elapsedMs - player.disconnectedAtMs >= DISCONNECT_GRACE_MS) {
-                this.finish(oppositeTeam(player.team));
-                return;
-            }
+        const disconnected = [...this.players.values()]
+            .filter((player) => !player.connected && player.disconnectedAtRealMs !== null);
+        if (disconnected.length === 0) return;
+        const timedOut = disconnected.filter((player) => this.now() - (player.disconnectedAtRealMs as number) >= DISCONNECT_GRACE_MS);
+        if (timedOut.length === 0) return;
+        const connected = [...this.players.values()].filter((player) => player.connected);
+        if (connected.length === 0) {
+            if (timedOut.length === disconnected.length) this.finish('draw', 'disconnect_timeout');
+            return;
         }
+        this.finish(oppositeTeam(timedOut[0].team), 'disconnect_timeout');
     }
 
-    private finish(winner: BattleSnapshot['winner']): void {
+    private isPausedForReconnect(): boolean {
+        return [...this.players.values()].some((player) => !player.connected);
+    }
+
+    private getDisconnectGraceRemainingMs(): number | null {
+        if (this.state !== 'running') return null;
+        const disconnectedAt = [...this.players.values()]
+            .filter((player) => !player.connected && player.disconnectedAtRealMs !== null)
+            .map((player) => player.disconnectedAtRealMs as number);
+        if (disconnectedAt.length === 0) return null;
+        const relevantDisconnect = [...this.players.values()].some((player) => player.connected)
+            ? Math.min(...disconnectedAt)
+            : Math.max(...disconnectedAt);
+        return Math.max(0, DISCONNECT_GRACE_MS - (this.now() - relevantDisconnect));
+    }
+
+    private finish(winner: BattleSnapshot['winner'], reason: BattleFinishReason): void {
         if (this.state === 'finished') return;
         this.winner = winner;
+        this.finishReason = reason;
         this.state = 'finished';
         this.endedAtMs ??= Date.now();
     }

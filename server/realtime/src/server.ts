@@ -17,6 +17,7 @@ const storage = await createServerStorage({
 });
 const matchResultService = new MatchResultService({ storage });
 const submittedRooms = new Set<string>();
+const finishedBroadcastRooms = new Set<string>();
 const socketsByRoom = new Map<string, Set<WebSocket>>();
 const connectionState = new WeakMap<WebSocket, { roomId: string; playerId: string }>();
 const socketByPlayer = new Map<string, WebSocket>();
@@ -107,6 +108,10 @@ websocketServer.on('connection', (socket) => {
                 accepted: result.accepted,
                 reason: result.reason,
             });
+            if (result.accepted) {
+                const snapshot = registry.get(message.roomId);
+                if (snapshot) broadcastSnapshot(snapshot);
+            }
         } catch (error) {
             send(socket, {
                 type: 'error',
@@ -129,16 +134,22 @@ websocketServer.on('connection', (socket) => {
     });
 });
 
+let networkFrame = 0;
 const tickTimer = setInterval(() => {
-    for (const snapshot of registry.tick()) {
-        const sockets = socketsByRoom.get(snapshot.roomId);
-        if (sockets && (snapshot.state !== 'running' || snapshot.tick % 2 === 0)) {
-            for (const socket of sockets) {
-                if (socket.readyState === socket.OPEN) send(socket, { type: 'snapshot', snapshot });
-            }
+    networkFrame += 1;
+    for (const snapshot of registry.tick({
+        includeRunning: networkFrame % 2 === 0,
+        includePaused: networkFrame % 15 === 0,
+    })) {
+        if (snapshot.state === 'running') {
+            broadcastSnapshot(snapshot);
+        } else if (snapshot.state === 'finished' && !finishedBroadcastRooms.has(snapshot.roomId)) {
+            finishedBroadcastRooms.add(snapshot.roomId);
+            broadcastSnapshot(snapshot);
         }
         if (snapshot.state === 'finished' && snapshot.winner && !submittedRooms.has(snapshot.roomId)) {
             submittedRooms.add(snapshot.roomId);
+            console.log(`[chaos-realtime] room=${snapshot.roomId} finished winner=${snapshot.winner} reason=${snapshot.finishReason ?? 'unknown'} tick=${snapshot.tick}`);
             void submitAuthoritativeResult(snapshot).catch((error) => {
                 submittedRooms.delete(snapshot.roomId);
                 console.error('[chaos-realtime] result submission failed', error);
@@ -197,6 +208,14 @@ httpServer.on('error', (error) => {
 
 function send(socket: WebSocket, message: ServerBattleMessage): void {
     socket.send(JSON.stringify(message));
+}
+
+function broadcastSnapshot(snapshot: BattleSnapshot): void {
+    const sockets = socketsByRoom.get(snapshot.roomId);
+    if (!sockets) return;
+    for (const socket of sockets) {
+        if (socket.readyState === socket.OPEN) send(socket, { type: 'snapshot', snapshot });
+    }
 }
 
 async function submitAuthoritativeResult(snapshot: BattleSnapshot) {

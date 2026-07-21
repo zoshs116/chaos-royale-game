@@ -1171,7 +1171,7 @@ function LobbyScreen({ state, go, onStartBattle }: { state: AppState; go: (route
 }
 
 function DeckScreen({ profile, go, onStartBattle, onDeckChange }: { profile: PlayerProfile; go: (route: AppRoute) => void; onStartBattle: () => void; onDeckChange: (deck: string[]) => void }) {
-    const [deck, setDeck] = useState(profile.selectedDeck);
+    const [deck, setDeck] = useState(() => sanitizeDeck(profile.selectedDeck));
     const [filter, setFilter] = useState<'all' | 'sentinel' | 'scourge' | 'neutral'>('all');
     const [profileUnitKey, setProfileUnitKey] = useState<string | null>(null);
     const units = visibleUnitKeys().filter((key) => filter === 'all' || UNIT_FACTIONS[key]?.faction === filter);

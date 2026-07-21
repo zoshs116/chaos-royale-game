@@ -1,7 +1,8 @@
 import type { DuckxelDirection } from './DuckxelAnimationCatalog';
 
-export type ActiveSkillKey = 'earthbreaker';
+export type ActiveSkillKey = 'earthbreaker' | 'web_snare';
 export type ActiveSkillPhase = 'ready' | 'casting' | 'cooldown';
+export type ActiveSkillMovementMode = 'forward-leap' | 'backward-vault';
 
 export interface ActiveSkillTargetMask {
     units: boolean;
@@ -29,6 +30,8 @@ export interface ActiveSkillDefinition {
     damage: number;
     towerDamageMultiplier: number;
     forwardDistance: number;
+    movementMode: ActiveSkillMovementMode;
+    effectForwardDistance: number;
     liftHeight: number;
     impactFrameByDirection: Record<DuckxelDirection, number>;
     timingByDirection: Record<DuckxelDirection, { impactMs: number; totalMs: number }>;
@@ -40,6 +43,19 @@ export interface ActiveSkillDefinition {
         frameCount: number;
         fps: number;
         displaySize: number;
+    };
+    projectileVfx?: {
+        texturePrefix: string;
+        frameCount: number;
+        fps: number;
+        thickness: number;
+        travelMs: number;
+    };
+    persistentZone?: {
+        durationMs: number;
+        tickIntervalMs: number;
+        damagePerTick: number;
+        root: boolean;
     };
 }
 
@@ -61,6 +77,8 @@ export const ACTIVE_SKILLS: Record<ActiveSkillKey, ActiveSkillDefinition> = {
         damage: 280,
         towerDamageMultiplier: 0.65,
         forwardDistance: 56,
+        movementMode: 'forward-leap',
+        effectForwardDistance: 0,
         liftHeight: 72,
         impactFrameByDirection: {
             'north-east': 3,
@@ -108,6 +126,66 @@ export const ACTIVE_SKILLS: Record<ActiveSkillKey, ActiveSkillDefinition> = {
             displaySize: 172,
         },
     },
+    web_snare: {
+        key: 'web_snare',
+        name: '거미줄 포획',
+        description: '백덤블링으로 뒤로 빠진 뒤 전방에 거미줄을 펼쳐 5초 동안 적 유닛을 속박하고 지속 피해를 줍니다.',
+        cooldownMs: 11000,
+        radius: 78,
+        damage: 35,
+        towerDamageMultiplier: 0,
+        forwardDistance: 50,
+        movementMode: 'backward-vault',
+        effectForwardDistance: 118,
+        liftHeight: 52,
+        impactFrameByDirection: {
+            'north-east': 7,
+            'north-west': 7,
+            'south-east': 7,
+            'south-west': 7,
+        },
+        timingByDirection: {
+            'north-east': { impactMs: 1080, totalMs: 1520 },
+            'north-west': { impactMs: 1080, totalMs: 1520 },
+            'south-east': { impactMs: 1080, totalMs: 1520 },
+            'south-west': { impactMs: 1080, totalMs: 1520 },
+        },
+        targetMask: {
+            units: true,
+            towers: false,
+            ground: true,
+            air: false,
+        },
+        impactWaves: [{
+            delayAfterLandingMs: 0,
+            radius: 78,
+            damage: 35,
+            towerDamageMultiplier: 0,
+            vfxScale: 1,
+            shakeDurationMs: 75,
+            shakeIntensity: 0.0018,
+        }],
+        effectFadeMs: 280,
+        vfx: {
+            texturePrefix: 'vfx_web_acrobat_zone',
+            frameCount: 3,
+            fps: 12,
+            displaySize: 168,
+        },
+        projectileVfx: {
+            texturePrefix: 'vfx_web_acrobat_line',
+            frameCount: 2,
+            fps: 14,
+            thickness: 34,
+            travelMs: 220,
+        },
+        persistentZone: {
+            durationMs: 5000,
+            tickIntervalMs: 1000,
+            damagePerTick: 42,
+            root: true,
+        },
+    },
 };
 
 export function getActiveSkillDefinition(skillKey?: ActiveSkillKey | null) {
@@ -122,7 +200,7 @@ export function validateActiveSkillDefinitions(): string[] {
         if (skill.radius <= 0 || skill.damage <= 0) errors.push(`${key}: damage and radius must be positive`);
         if (skill.towerDamageMultiplier < 0 || skill.towerDamageMultiplier > 1) errors.push(`${key}: invalid tower damage multiplier`);
         if (!skill.targetMask.units && !skill.targetMask.towers) errors.push(`${key}: target mask is empty`);
-        if (skill.forwardDistance < 0 || skill.liftHeight <= 0) errors.push(`${key}: invalid movement values`);
+        if (skill.forwardDistance < 0 || skill.liftHeight <= 0 || skill.effectForwardDistance < 0) errors.push(`${key}: invalid movement values`);
         if (skill.impactWaves.length === 0) errors.push(`${key}: at least one impact wave is required`);
         let previousWaveDelay = -1;
         for (const [waveIndex, wave] of skill.impactWaves.entries()) {
@@ -134,6 +212,17 @@ export function validateActiveSkillDefinitions(): string[] {
         }
         if (skill.effectFadeMs < 0) errors.push(`${key}: invalid effect fade time`);
         if (skill.vfx.frameCount <= 0 || skill.vfx.fps <= 0) errors.push(`${key}: invalid VFX timing`);
+        if (skill.projectileVfx && (
+            skill.projectileVfx.frameCount <= 0
+            || skill.projectileVfx.fps <= 0
+            || skill.projectileVfx.thickness <= 0
+            || skill.projectileVfx.travelMs <= 0
+        )) errors.push(`${key}: invalid projectile VFX`);
+        if (skill.persistentZone && (
+            skill.persistentZone.durationMs <= 0
+            || skill.persistentZone.tickIntervalMs <= 0
+            || skill.persistentZone.damagePerTick <= 0
+        )) errors.push(`${key}: invalid persistent zone`);
         for (const [direction, impactFrame] of Object.entries(skill.impactFrameByDirection)) {
             if (!Number.isInteger(impactFrame) || impactFrame < 0) errors.push(`${key}/${direction}: invalid impact frame`);
         }
