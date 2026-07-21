@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "dev": "vite",
@@ -17,13 +20,18 @@
     "worker:matchmaking": "tsx server/workers/matchmaking-tick-worker.ts",
     "server:gateway": "tsx server/gateway/src/httpServer.ts",
     "server:realtime": "tsx server/realtime/src/server.ts",
+    "build:realtime": "node scripts/build-realtime.mjs",
+    "start:realtime": "node dist-server/realtime.mjs",
     "test:multiplayer": "tsx server/tests/multiplayer-smoke.ts",
-    "test:realtime": "tsx server/tests/realtime-websocket-smoke.ts"
+    "test:realtime": "tsx server/tests/realtime-websocket-smoke.ts",
+    "test:realtime:config": "tsx server/tests/realtime-config-smoke.ts",
+    "test:realtime:production": "node scripts/run-realtime-production-smoke.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
     "@types/pg": "^8.18.0",
     "@types/ws": "8.18.1",
+    "esbuild": "0.28.1",
     "jimp": "^1.6.0",
     "tsx": "^4.20.5",
     "typescript": "~5.9.3",

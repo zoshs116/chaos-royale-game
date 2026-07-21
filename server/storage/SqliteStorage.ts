@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { open, type Database } from 'sqlite';
-import * as sqlite3 from 'sqlite3';
+import sqlite3 from 'sqlite3';
 import type { MatchSummary } from '../services/matches/src/types';
 import type { ReplayRecord } from '../services/replay/src/types';
 import type { PlayerProgressionRecord, PlayerRatingRecord, ServerStorage } from './types';

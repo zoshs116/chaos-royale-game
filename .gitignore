@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+dist-server
 tmp
 *.local
 
@@ -60,3 +61,5 @@ scripts/*
 !scripts/generate-ui-atlas.mjs
 !scripts/normalize-tower-rubble.mjs
 !scripts/run-local-multiplayer.mjs
+!scripts/build-realtime.mjs
+!scripts/run-realtime-production-smoke.mjs

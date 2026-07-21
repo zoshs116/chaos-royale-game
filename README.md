@@ -74,6 +74,9 @@ Normal entry uses the real Supabase session. Explicit `?devUser=a`, `?devUser=b`
 ```bash
 pnpm run typecheck:server
 pnpm run test:multiplayer
+pnpm run test:realtime:config
+pnpm run build:realtime
+pnpm run test:realtime:production
 ```
 
 The smoke suite verifies:
@@ -83,7 +86,36 @@ The smoke suite verifies:
 - idempotent match-result progression
 - two-user clan invite, acceptance, and friendly-room flow
 
-The WebSocket server defaults to `ws://127.0.0.1:8787/battle`, and the REST gateway defaults to `http://127.0.0.1:8788`. Set `CHAOS_DEV_MULTIPLAYER_TOKEN` and the matching `VITE_CHAOS_DEV_MULTIPLAYER_TOKEN` to protect local shared-network testing. Production mode refuses unauthenticated startup when no token is configured.
+The WebSocket server defaults to `ws://127.0.0.1:8787/battle`, and the REST gateway defaults to `http://127.0.0.1:8788`. Set `CHAOS_DEV_MULTIPLAYER_TOKEN` and the matching `VITE_CHAOS_DEV_MULTIPLAYER_TOKEN` to protect local shared-network testing. The development token is never accepted when `NODE_ENV=production`.
+
+## Realtime server deployment
+
+The production topology is:
+
+- Vercel: React/Phaser browser client
+- Railway: one authoritative realtime WebSocket process
+- Supabase: authentication, profiles, clans, friendly rooms, chat, and durable match results
+
+`railway.json` builds only the realtime server bundle, starts it with `pnpm run start:realtime`, and checks `/health` before Railway routes traffic to the new deployment. Railway supplies `PORT`; the server binds to `0.0.0.0` automatically in production.
+
+Configure these variables on the Railway realtime service:
+
+```env
+NODE_ENV=production
+CHAOS_STORAGE_DRIVER=memory
+SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
+SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
+CHAOS_ALLOWED_ORIGINS=https://YOUR_VERCEL_DOMAIN
+```
+
+Do not add `CHAOS_DEV_MULTIPLAYER_TOKEN` to Railway. Do not expose `SUPABASE_SERVICE_ROLE_KEY` through a `VITE_` variable or through Vercel. Active battles currently live in one Railway process, so keep the realtime service at one replica. Supabase remains the durable source for account and completed-match progression.
+
+After Railway generates a public HTTPS domain, set the Vercel client variable to its secure WebSocket endpoint:
+
+```env
+VITE_BATTLE_WS_URL=wss://YOUR_RAILWAY_DOMAIN/battle
+```
 
 ## Included source
 

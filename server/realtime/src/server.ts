@@ -7,34 +7,56 @@ import { createServerStorage } from '../../storage';
 import { MatchResultService } from '../../services/matches/src';
 import type { BattleSnapshot } from '../../match-simulator/src/AuthoritativeBattleRoom';
 import { verifyBattleJoin } from './auth';
+import { loadRealtimeServerConfig } from './config';
 
-const port = Number(process.env.CHAOS_REALTIME_PORT ?? 8787);
-const host = process.env.CHAOS_REALTIME_HOST ?? '127.0.0.1';
-const devToken = process.env.CHAOS_DEV_MULTIPLAYER_TOKEN ?? '';
-const production = process.env.NODE_ENV === 'production';
-const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? '';
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+const config = loadRealtimeServerConfig();
 const registry = new BattleRoomRegistry();
-const storage = await createServerStorage();
+const storage = await createServerStorage({
+    driver: config.storageDriver,
+    postgresUrl: config.postgresUrl,
+});
 const matchResultService = new MatchResultService({ storage });
 const submittedRooms = new Set<string>();
 const socketsByRoom = new Map<string, Set<WebSocket>>();
 const connectionState = new WeakMap<WebSocket, { roomId: string; playerId: string }>();
 const socketByPlayer = new Map<string, WebSocket>();
+const startedAt = Date.now();
 
 const httpServer = createServer((request, response) => {
     if (request.url === '/health') {
         response.writeHead(200, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ ok: true, service: 'chaos-realtime' }));
+        response.end(JSON.stringify({
+            ok: true,
+            service: 'chaos-realtime',
+            build: config.serverBuild,
+            storage: config.storageDriver,
+            uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
+        }));
         return;
     }
     response.writeHead(404);
     response.end();
 });
 
-const websocketServer = new WebSocketServer({ server: httpServer, path: '/battle', maxPayload: 32 * 1024 });
+const websocketServer = new WebSocketServer({
+    server: httpServer,
+    path: '/battle',
+    maxPayload: 32 * 1024,
+    verifyClient: ({ origin }, done) => {
+        if (isAllowedOrigin(origin)) {
+            done(true);
+            return;
+        }
+        done(false, 403, 'origin not allowed');
+    },
+});
 
 websocketServer.on('connection', (socket) => {
+    const liveSocket = socket as LiveWebSocket;
+    liveSocket.isAlive = true;
+    socket.on('pong', () => {
+        liveSocket.isAlive = true;
+    });
     let rateWindowStartedAt = Date.now();
     let rateWindowCount = 0;
     socket.on('message', async (buffer) => {
@@ -60,7 +82,7 @@ websocketServer.on('connection', (socket) => {
                     roomId: message.roomId,
                     token: message.token,
                     player: message.player,
-                }, { production, developmentToken: devToken });
+                }, { production: config.production, developmentToken: config.developmentToken });
                 const snapshot = registry.join(message.roomId, verified.player);
                 const playerKey = `${message.roomId}:${verified.player.playerId}`;
                 const previousSocket = socketByPlayer.get(playerKey);
@@ -125,19 +147,53 @@ const tickTimer = setInterval(() => {
     }
 }, 1000 / 30);
 
-httpServer.listen(port, host, () => {
-    console.log(`[chaos-realtime] listening on ws://${host}:${port}/battle`);
+const heartbeatTimer = setInterval(() => {
+    for (const socket of websocketServer.clients) {
+        const liveSocket = socket as LiveWebSocket;
+        if (!liveSocket.isAlive) {
+            socket.terminate();
+            continue;
+        }
+        liveSocket.isAlive = false;
+        socket.ping();
+    }
+}, 30_000);
+
+httpServer.listen(config.port, config.host, () => {
+    const address = httpServer.address();
+    const boundPort = typeof address === 'object' && address ? address.port : config.port;
+    console.log(`[chaos-realtime] listening on ws://${config.host}:${boundPort}/battle`);
+    console.log(`[chaos-realtime] build=${config.serverBuild} storage=${config.storageDriver}`);
 });
 
-const shutdown = () => {
+let shuttingDown = false;
+const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[chaos-realtime] ${signal} received, shutting down`);
     clearInterval(tickTimer);
-    websocketServer.close();
-    httpServer.close();
-    void storage.close();
+    clearInterval(heartbeatTimer);
+    for (const socket of websocketServer.clients) socket.close(1012, 'server restarting');
+    const forceTimer = setTimeout(() => {
+        for (const socket of websocketServer.clients) socket.terminate();
+        httpServer.closeAllConnections();
+    }, 8_000);
+    forceTimer.unref();
+    await Promise.allSettled([
+        closeWebSocketServer(),
+        closeHttpServer(),
+        storage.close(),
+    ]);
+    clearTimeout(forceTimer);
 };
 
-process.once('SIGINT', shutdown);
-process.once('SIGTERM', shutdown);
+process.once('SIGINT', () => void shutdown('SIGINT'));
+process.once('SIGTERM', () => void shutdown('SIGTERM'));
+httpServer.on('error', (error) => {
+    console.error('[chaos-realtime] HTTP server error', error);
+    process.exitCode = 1;
+    void shutdown('server error');
+});
 
 function send(socket: WebSocket, message: ServerBattleMessage): void {
     socket.send(JSON.stringify(message));
@@ -164,18 +220,18 @@ async function submitAuthoritativeResult(snapshot: BattleSnapshot) {
         inputCount: snapshot.inputCount,
         eventsDigestSha256: digest,
         replayKey: `replays/${normalizedId}.json`,
-        serverBuild: 'local-authoritative-v1',
+        serverBuild: config.serverBuild,
     }, Date.now());
     await submitSupabaseResult(snapshot, digest);
 }
 
 async function submitSupabaseResult(snapshot: BattleSnapshot, digest: string) {
-    if (!supabaseUrl || !supabaseServiceRoleKey || !snapshot.startedAtUtc || !snapshot.endedAtUtc || !snapshot.winner) return;
-    const response = await fetch(`${supabaseUrl.replace(/\/$/, '')}/rest/v1/rpc/apply_match_result`, {
+    if (!config.supabaseUrl || !config.supabaseServiceRoleKey || !snapshot.startedAtUtc || !snapshot.endedAtUtc || !snapshot.winner) return;
+    const response = await fetch(`${config.supabaseUrl.replace(/\/$/, '')}/rest/v1/rpc/apply_match_result`, {
         method: 'POST',
         headers: {
-            apikey: supabaseServiceRoleKey,
-            authorization: `Bearer ${supabaseServiceRoleKey}`,
+            apikey: config.supabaseServiceRoleKey,
+            authorization: `Bearer ${config.supabaseServiceRoleKey}`,
             'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -189,4 +245,22 @@ async function submitSupabaseResult(snapshot: BattleSnapshot, digest: string) {
         }),
     });
     if (!response.ok) throw new Error(`Supabase result submission failed (${response.status}): ${await response.text()}`);
+}
+
+interface LiveWebSocket extends WebSocket {
+    isAlive: boolean;
+}
+
+function isAllowedOrigin(origin: string | undefined): boolean {
+    if (config.allowedOrigins.size === 0) return true;
+    if (!origin) return false;
+    return config.allowedOrigins.has(origin.replace(/\/$/, ''));
+}
+
+function closeWebSocketServer(): Promise<void> {
+    return new Promise((resolve) => websocketServer.close(() => resolve()));
+}
+
+function closeHttpServer(): Promise<void> {
+    return new Promise((resolve) => httpServer.close(() => resolve()));
 }
