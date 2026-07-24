@@ -32,6 +32,13 @@ export interface AuthoritativeCombatProfile {
     canTargetTowers: boolean;
     canTargetGround: boolean;
     canTargetAir: boolean;
+    crossLaneCloseRange: number;
+    sameLanePenalty: number;
+    bridgeCrossLaneAllowed: boolean;
+    bridgeEngagementRange: number;
+    centerPullHalfWidth: number;
+    rearAggroRange: number;
+    backtrackTolerance: number;
     movementType: 'ground' | 'air';
     movementRoute: DuckxelMovementRoute;
     collisionRadius: number;
@@ -41,6 +48,7 @@ export interface AuthoritativeCombatProfile {
         speed: number;
         splashRadius: number;
     };
+    meleeSplashRadius: number;
     recoilDistance: number;
     spawnCount: number;
     spawnOffsets: Array<{ x: number; y: number }>;
@@ -88,11 +96,21 @@ export function getAuthoritativeCombatProfile(unitKey: string): AuthoritativeCom
         canTargetTowers: profile?.targeting.mask.towers ?? true,
         canTargetGround: profile?.targeting.mask.ground ?? data.targetPriority !== 'air',
         canTargetAir: profile?.targeting.mask.air ?? data.targetPriority !== 'ground',
+        crossLaneCloseRange: profile?.targeting.crossLaneCloseRange ?? 44,
+        sameLanePenalty: profile?.targeting.sameLanePenalty ?? 20,
+        bridgeCrossLaneAllowed: profile?.targeting.bridgeCrossLaneAllowed ?? true,
+        bridgeEngagementRange: profile?.targeting.bridgeEngagementRange ?? 84,
+        centerPullHalfWidth: profile?.targeting.centerPullHalfWidth ?? 54,
+        rearAggroRange: profile?.targeting.rearAggroRange ?? 44,
+        backtrackTolerance: profile?.targeting.backtrackTolerance ?? 18,
         movementType: data.movementType,
         movementRoute: profile?.movement.route ?? (data.movementType === 'air' ? 'air-direct' : 'ground-bridge'),
         collisionRadius: data.movementType === 'air' ? 0 : profile?.collisionRadius ?? (data.attackType === 'melee' ? 12 : 10),
         collisionMass: profile?.collisionMass ?? (data.role === 'tank' ? 2.4 : data.role === 'swarm' ? 0.75 : 1.2),
         projectile,
+        meleeSplashRadius: data.attackType === 'melee'
+            ? Math.max(0, profile?.attack.splashRadius ?? data.splashRadius ?? 0)
+            : 0,
         recoilDistance: profile?.attack.recoilDistance ?? 0,
         spawnCount,
         spawnOffsets: Array.from({ length: spawnCount }, (_, index) => getDuckxelSpawnOffset(unitKey, index, spawnCount, 'blue')),
@@ -123,6 +141,9 @@ export function validateAuthoritativeCombatProfiles(unitKeys: string[]): string[
         }
         if (profile.spawnOffsets.length !== profile.spawnCount) {
             errors.push(`${unitKey}: spawn formation does not match spawn count`);
+        }
+        if (profile.meleeSplashRadius < 0) {
+            errors.push(`${unitKey}: invalid melee splash radius`);
         }
         if (profile.movementRoute === 'river-jump' && !profile.jump) {
             errors.push(`${unitKey}: river jump route requires jump data`);

@@ -24,6 +24,7 @@
     "start:realtime": "node dist-server/realtime.mjs",
     "test:multiplayer": "tsx server/tests/multiplayer-smoke.ts",
     "test:realtime": "tsx server/tests/realtime-websocket-smoke.ts",
+    "test:client-sync": "tsx server/tests/client-sync-smoke.ts",
     "test:realtime:config": "tsx server/tests/realtime-config-smoke.ts",
     "test:realtime:production": "node scripts/run-realtime-production-smoke.mjs"
   },

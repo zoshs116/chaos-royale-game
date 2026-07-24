@@ -77,6 +77,13 @@ export default class EffectManager {
     }
 
     playHit(x: number, y: number, style: HitStyle, color: number, _amount?: number) {
+        void x;
+        void y;
+        void style;
+        void color;
+        void _amount;
+        return;
+
         const radius = style === 'splash' ? 11 : style === 'melee' ? 5.5 : 6.5;
         const depth = CONSTANTS.DEPTH.PROJECTILE + 5;
 

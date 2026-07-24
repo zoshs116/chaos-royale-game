@@ -1,8 +1,21 @@
 import type { InputCmd, SimulationBaseState } from '../systems/SimulationProtocol';
+import ServerClockEstimator, { type ClockDiagnostics } from './ServerClockEstimator';
+import BattleViewTransform from './BattleViewTransform';
+
+export interface BattleNetworkDiagnostics extends ClockDiagnostics {
+    snapshotAgeMs: number;
+    snapshotBytes: number;
+    parseMs: number;
+    receivedTick: number;
+    receivedSequence: number;
+    staleSnapshots: number;
+}
 
 export interface RemoteBattleSnapshot {
     roomId: string;
     tick: number;
+    sequence: number;
+    serverTimeMs: number;
     state: 'waiting' | 'running' | 'finished';
     paused: boolean;
     disconnectGraceRemainingMs: number | null;
@@ -18,8 +31,8 @@ export interface RemoteBattleSnapshot {
         playerId: string;
         team: 'blue' | 'red';
         connected: boolean;
-        hand: string[];
-        nextUnitKey: string;
+        hand: Array<string | null>;
+        nextUnitKey: string | null;
     }>;
     units: Array<{
         id: string;
@@ -42,6 +55,11 @@ export interface RemoteBattleSnapshot {
         activeSkillPhase: 'ready' | 'casting' | 'cooldown' | null;
         activeSkillCooldownRemainingMs: number;
         activeSkillCastSerial: number;
+        spawnTick: number;
+        attackTick: number;
+        hitTick: number;
+        jumpTick: number;
+        activeSkillCastTick: number;
     }>;
     projectiles: Array<{
         id: string;
@@ -87,6 +105,7 @@ interface BattleSocketOptions {
     onCommandResult?: (seq: number, accepted: boolean, reason?: string) => void;
     onConnectionState?: (state: 'connecting' | 'connected' | 'reconnecting' | 'closed') => void;
     onLatency?: (latencyMs: number) => void;
+    onNetworkDiagnostics?: (diagnostics: BattleNetworkDiagnostics) => void;
     onServerError?: (code: string, message: string) => void;
 }
 
@@ -97,6 +116,7 @@ interface PendingMessage {
 
 export default class BattleSocketClient {
     private readonly options: BattleSocketOptions;
+    private readonly viewTransform: BattleViewTransform;
     private socket: WebSocket | null = null;
     private reconnectTimer: number | null = null;
     private reconnectAttempt = 0;
@@ -105,9 +125,25 @@ export default class BattleSocketClient {
     private joinTimer: number | null = null;
     private pingTimer: number | null = null;
     private readonly pendingMessages = new Map<number, PendingMessage>();
+    private readonly clock = new ServerClockEstimator();
+    private lastSnapshotSequence = -1;
+    private staleSnapshots = 0;
+    private diagnostics: BattleNetworkDiagnostics = {
+        rttMs: 0,
+        jitterMs: 0,
+        offsetMs: 0,
+        sampleCount: 0,
+        snapshotAgeMs: 0,
+        snapshotBytes: 0,
+        parseMs: 0,
+        receivedTick: -1,
+        receivedSequence: -1,
+        staleSnapshots: 0,
+    };
 
     constructor(options: BattleSocketOptions) {
         this.options = options;
+        this.viewTransform = new BattleViewTransform(options.team);
     }
 
     public connect(): void {
@@ -132,6 +168,10 @@ export default class BattleSocketClient {
             });
         } else {
             if (command.action !== 'spawn_unit') return false;
+            const worldPoint = this.viewTransform.viewToWorldPoint({
+                x: command.payload.x,
+                y: command.payload.y,
+            });
             payload = JSON.stringify({
                 type: 'command',
                 roomId: this.options.roomId,
@@ -140,8 +180,8 @@ export default class BattleSocketClient {
                     playerId: this.options.playerId,
                     seq: command.seq,
                     unitKey: command.payload.unitKey,
-                    x: this.options.team === 'blue' ? command.payload.x : 360 - command.payload.x,
-                    y: this.options.team === 'blue' ? command.payload.y : 678 - command.payload.y,
+                    x: worldPoint.x,
+                    y: worldPoint.y,
                     handIndex: command.payload.handIndex,
                 },
             });
@@ -186,13 +226,23 @@ export default class BattleSocketClient {
         return this.socket?.readyState === WebSocket.OPEN && this.joined;
     }
 
+    public getEstimatedServerTimeMs(clientNowMs = Date.now()): number {
+        return this.clock.estimateServerTime(clientNowMs);
+    }
+
+    public getNetworkDiagnostics(): Readonly<BattleNetworkDiagnostics> {
+        return this.diagnostics;
+    }
+
     private openSocket(): void {
         this.options.onConnectionState?.(this.reconnectAttempt > 0 ? 'reconnecting' : 'connecting');
         const socket = new WebSocket(this.options.url);
         this.socket = socket;
+        this.clock.reset();
+        this.lastSnapshotSequence = -1;
         socket.addEventListener('open', async () => {
             const token = await this.options.tokenProvider?.();
-            if (socket.readyState !== WebSocket.OPEN) return;
+            if (this.socket !== socket || socket.readyState !== WebSocket.OPEN) return;
             socket.send(JSON.stringify({
                 type: 'join',
                 roomId: this.options.roomId,
@@ -208,7 +258,11 @@ export default class BattleSocketClient {
             }, 10_000);
         });
         socket.addEventListener('message', (event) => {
-            const message = JSON.parse(String(event.data)) as {
+            if (this.socket !== socket) return;
+            const receivedAtMs = Date.now();
+            const raw = String(event.data);
+            const parseStartedAt = performance.now();
+            const message = JSON.parse(raw) as {
                 type: string;
                 snapshot?: RemoteBattleSnapshot;
                 seq?: number;
@@ -217,9 +271,18 @@ export default class BattleSocketClient {
                 code?: string;
                 message?: string;
                 sentAt?: number;
+                serverAt?: number;
             };
+            const parseMs = performance.now() - parseStartedAt;
             if ((message.type === 'joined' || message.type === 'snapshot') && message.snapshot) {
                 const snapshot = message.snapshot;
+                this.clock.bootstrap(snapshot.serverTimeMs, receivedAtMs);
+                if (snapshot.sequence <= this.lastSnapshotSequence) {
+                    this.staleSnapshots += 1;
+                    this.publishDiagnostics(snapshot, raw.length, parseMs, receivedAtMs);
+                    return;
+                }
+                this.lastSnapshotSequence = snapshot.sequence;
                 if (message.type === 'joined') {
                     this.joined = true;
                     this.reconnectAttempt = 0;
@@ -242,16 +305,21 @@ export default class BattleSocketClient {
                     redCrowns: localIsBlue ? snapshot.redCrowns : snapshot.blueCrowns,
                 });
                 if (message.type === 'joined') this.flushPendingMessages();
+                this.publishDiagnostics(snapshot, raw.length, parseMs, receivedAtMs);
             } else if (message.type === 'command_result') {
                 if (typeof message.seq === 'number') this.pendingMessages.delete(message.seq);
                 this.options.onCommandResult?.(message.seq ?? -1, message.accepted === true, message.reason);
-            } else if (message.type === 'pong' && typeof message.sentAt === 'number') {
-                this.options.onLatency?.(Math.max(0, Date.now() - message.sentAt));
+            } else if (message.type === 'pong' && typeof message.sentAt === 'number' && typeof message.serverAt === 'number') {
+                const clock = this.clock.addPong(message.sentAt, receivedAtMs, message.serverAt);
+                this.options.onLatency?.(clock.rttMs);
+                this.diagnostics = { ...this.diagnostics, ...clock };
+                this.options.onNetworkDiagnostics?.(this.diagnostics);
             } else if (message.type === 'error') {
                 this.options.onServerError?.(message.code ?? 'server_error', message.message ?? 'server error');
             }
         });
         socket.addEventListener('close', () => {
+            if (this.socket !== socket) return;
             this.joined = false;
             for (const pending of this.pendingMessages.values()) pending.sent = false;
             if (this.joinTimer !== null) window.clearTimeout(this.joinTimer);
@@ -260,7 +328,9 @@ export default class BattleSocketClient {
             this.pingTimer = null;
             this.scheduleReconnect();
         });
-        socket.addEventListener('error', () => socket.close());
+        socket.addEventListener('error', () => {
+            if (this.socket === socket) socket.close();
+        });
     }
 
     private scheduleReconnect(): void {
@@ -285,9 +355,33 @@ export default class BattleSocketClient {
 
     private startPingLoop(): void {
         if (this.pingTimer !== null) window.clearInterval(this.pingTimer);
+        this.sendPing();
         this.pingTimer = window.setInterval(() => {
-            if (!this.joined || this.socket?.readyState !== WebSocket.OPEN) return;
-            this.socket.send(JSON.stringify({ type: 'ping', sentAt: Date.now() }));
-        }, 5_000);
+            this.sendPing();
+        }, 2_000);
+    }
+
+    private sendPing(): void {
+        if (!this.joined || this.socket?.readyState !== WebSocket.OPEN) return;
+        this.socket.send(JSON.stringify({ type: 'ping', sentAt: Date.now() }));
+    }
+
+    private publishDiagnostics(
+        snapshot: RemoteBattleSnapshot,
+        snapshotBytes: number,
+        parseMs: number,
+        receivedAtMs: number,
+    ): void {
+        const clock = this.clock.getDiagnostics();
+        this.diagnostics = {
+            ...clock,
+            snapshotAgeMs: Math.max(0, this.clock.estimateServerTime(receivedAtMs) - snapshot.serverTimeMs),
+            snapshotBytes,
+            parseMs,
+            receivedTick: snapshot.tick,
+            receivedSequence: snapshot.sequence,
+            staleSnapshots: this.staleSnapshots,
+        };
+        this.options.onNetworkDiagnostics?.(this.diagnostics);
     }
 }

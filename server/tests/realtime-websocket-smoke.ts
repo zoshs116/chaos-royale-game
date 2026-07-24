@@ -8,12 +8,24 @@ interface BattleMessage {
     sentAt?: number;
     snapshot?: {
         tick: number;
+        sequence: number;
+        serverTimeMs: number;
         state: string;
         paused?: boolean;
         disconnectGraceRemainingMs?: number | null;
         winner?: string;
         finishReason?: string;
-        units: Array<{ id: string; unitKey: string; attackSerial: number }>;
+        units: Array<{
+            id: string;
+            unitKey: string;
+            x: number;
+            y: number;
+            hp: number;
+            state: string;
+            attackSerial: number;
+            hitSerial: number;
+            jumpSerial: number;
+        }>;
         projectiles: Array<{ id: string; projectileKey: string }>;
     };
 }
@@ -64,9 +76,15 @@ try {
     const accepted = await blue.waitFor((message) => message.type === 'command_result' && message.seq === 1);
     assert.equal(accepted.accepted, true);
     const blueState = await blue.waitFor((message) => message.type === 'snapshot' && (message.snapshot?.units.length ?? 0) > 0);
-    const redState = await red.waitFor((message) => message.type === 'snapshot' && (message.snapshot?.units.length ?? 0) > 0);
+    const sharedTick = blueState.snapshot?.tick;
+    const redState = await red.waitFor((message) => message.type === 'snapshot'
+        && message.snapshot?.tick === sharedTick
+        && (message.snapshot?.units.length ?? 0) > 0);
     assert.equal(blueState.snapshot?.units.filter((unit) => unit.unitKey === 'spear_goblin').length, 3);
     assert.equal(redState.snapshot?.units[0]?.id, blueState.snapshot?.units[0]?.id);
+    assert.equal(redState.snapshot?.sequence, blueState.snapshot?.sequence);
+    assert.equal(redState.snapshot?.serverTimeMs, blueState.snapshot?.serverTimeMs);
+    assert.deepEqual(redState.snapshot?.units, blueState.snapshot?.units, 'same server tick must contain identical canonical unit state');
     const hasSpear = (message: BattleMessage) => message.type === 'snapshot'
         && message.snapshot?.projectiles.some((projectile) => projectile.projectileKey === 'projectile_spear') === true;
     const blueProjectile = await blue.waitFor(hasSpear);

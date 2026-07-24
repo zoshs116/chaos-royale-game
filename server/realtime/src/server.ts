@@ -22,6 +22,7 @@ const socketsByRoom = new Map<string, Set<WebSocket>>();
 const connectionState = new WeakMap<WebSocket, { roomId: string; playerId: string }>();
 const socketByPlayer = new Map<string, WebSocket>();
 const startedAt = Date.now();
+const MAX_SNAPSHOT_BACKPRESSURE_BYTES = 256 * 1024;
 
 const httpServer = createServer((request, response) => {
     if (request.url === '/health') {
@@ -213,8 +214,11 @@ function send(socket: WebSocket, message: ServerBattleMessage): void {
 function broadcastSnapshot(snapshot: BattleSnapshot): void {
     const sockets = socketsByRoom.get(snapshot.roomId);
     if (!sockets) return;
+    const payload = JSON.stringify({ type: 'snapshot', snapshot } satisfies ServerBattleMessage);
     for (const socket of sockets) {
-        if (socket.readyState === socket.OPEN) send(socket, { type: 'snapshot', snapshot });
+        if (socket.readyState !== socket.OPEN) continue;
+        if (snapshot.state === 'running' && socket.bufferedAmount > MAX_SNAPSHOT_BACKPRESSURE_BYTES) continue;
+        socket.send(payload);
     }
 }
 

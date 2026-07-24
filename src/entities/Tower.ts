@@ -93,6 +93,15 @@ export default class Tower extends Unit {
     update(_time: number, delta: number, entityManager?: any) {
         if (this.state === UnitState.DIE || !this.active) return;
 
+        // Web/root effects use Unit's common stun state. A bound tower stays visible and
+        // targetable, but must not acquire a target or fire until the debuff expires.
+        if (this.isStunned) {
+            this.target = null;
+            this.updateTowerHpBar();
+            this.updateSortDepth();
+            return;
+        }
+
         if (!this.towerActive) {
             this.updateTowerHpBar();
             this.updateSortDepth();
@@ -298,7 +307,8 @@ export default class Tower extends Unit {
     }
 
     private applyTowerHpBarOffset() {
-        const xOffset = this.isKingTower ? -5 : -4;
+        const baseXOffset = this.isKingTower ? -5 : -4;
+        const xOffset = baseXOffset - this.hpBarBg.displayWidth * 0.15;
         this.hpBarBg.x = xOffset - this.hpBarBg.width / 2;
         this.hpBarFill.x = xOffset - this.hpBarFill.width / 2;
         this.hpBarHighlight.x = xOffset - this.hpBarHighlight.width / 2;

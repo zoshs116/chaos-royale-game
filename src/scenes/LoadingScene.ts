@@ -9,6 +9,7 @@ import {
     DUCKXEL_BATTLE_DIRECTIONS,
     resolveDuckxelDirectionAnimation,
 } from '../data/DuckxelAnimationCatalog';
+import { BARBARIAN_DRAGON_SKILL_ASSETS } from '../data/BarbarianDragonSkillData';
 
 const UI_FONT = GAME_FONT;
 const TITLE_FONT = GAME_TITLE_FONT;
@@ -177,8 +178,35 @@ export default class LoadingScene extends Phaser.Scene {
                 `assets/sprites/duckxel/web_acrobat_vfx/zone/frame-${String(frame).padStart(2, '0')}.png`
             );
         }
+        for (let frame = 0; frame < BARBARIAN_DRAGON_SKILL_ASSETS.dragonFrameCount; frame++) {
+            this.load.image(
+                `${BARBARIAN_DRAGON_SKILL_ASSETS.dragonTexturePrefix}_${frame}`,
+                `assets/sprites/duckxel/${BARBARIAN_DRAGON_SKILL_ASSETS.dragonFolder}/frame-${String(frame).padStart(2, '0')}.png`
+            );
+        }
+        for (let frame = 0; frame < BARBARIAN_DRAGON_SKILL_ASSETS.impactFrameCount; frame++) {
+            this.load.image(
+                `${BARBARIAN_DRAGON_SKILL_ASSETS.impactTexturePrefix}_${frame}`,
+                `assets/sprites/duckxel/${BARBARIAN_DRAGON_SKILL_ASSETS.impactFolder}/frame-${String(frame).padStart(2, '0')}.png`
+            );
+        }
 
         this.load.on('complete', () => {
+            const barbarianSkillTextureKeys = [
+                ...Array.from(
+                    { length: BARBARIAN_DRAGON_SKILL_ASSETS.dragonFrameCount },
+                    (_, frame) => `${BARBARIAN_DRAGON_SKILL_ASSETS.dragonTexturePrefix}_${frame}`,
+                ),
+                ...Array.from(
+                    { length: BARBARIAN_DRAGON_SKILL_ASSETS.impactFrameCount },
+                    (_, frame) => `${BARBARIAN_DRAGON_SKILL_ASSETS.impactTexturePrefix}_${frame}`,
+                ),
+            ];
+            for (const textureKey of barbarianSkillTextureKeys) {
+                if (this.textures.exists(textureKey)) {
+                    this.textures.get(textureKey).setFilter(Phaser.Textures.FilterMode.NEAREST);
+                }
+            }
             this.ensureFallbackTextures();
             loadingText.setText(ko.loading.ready);
             subtitle.setText(ko.loading.starting);

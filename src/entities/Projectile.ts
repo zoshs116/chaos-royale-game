@@ -305,6 +305,11 @@ export default class Projectile extends Phaser.GameObjects.Container {
     }
 
     private showHitEffect(scene: Phaser.Scene, x: number, y: number) {
+        void scene;
+        void x;
+        void y;
+        return;
+
         const color = this.getFxColor();
         const radius = this.style === 'fireball' ? 18 : this.style === 'cannonball' ? 20 : this.style === 'spear' ? 13 : this.style === 'magic' ? 14 : 12;
         const ring = scene.add.circle(x, y, radius, color, 0.48);

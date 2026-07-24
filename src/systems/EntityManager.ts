@@ -16,6 +16,7 @@ import {
     getDuckxelBattleProfile,
 } from '../data/DuckxelBattleProfiles';
 import type { ActiveSkillDefinition, ActiveSkillImpactWave } from '../data/ActiveSkillData';
+import { BARBARIAN_DRAGON_SKILL_ASSETS } from '../data/BarbarianDragonSkillData';
 
 const UNIT_MOVEMENT_SPEED_MULTIPLIER = 0.7;
 const UNIT_ATTACK_INTERVAL_MULTIPLIER = 1.35;
@@ -24,6 +25,25 @@ interface AttackSlotReservation {
     targetOrder: number;
     slotIndex: number;
     lastUsedAt: number;
+}
+
+interface SplashDamageEvent {
+    x: number;
+    y: number;
+    radius: number;
+    damage: number;
+    team: string;
+    attacker?: Unit | null;
+}
+
+interface MeleeDamageEvent {
+    attacker: Unit;
+    target: Unit;
+    baseDamage: number;
+}
+
+interface UnitDeathEvent {
+    unit: Unit;
 }
 
 /**
@@ -41,6 +61,23 @@ export default class EntityManager {
     private nextSimulationOrder = 1;
     private attackSlotByAttacker = new Map<number, AttackSlotReservation>();
     private simulationTimeMs = 0;
+    private destroyed = false;
+
+    private readonly onFireProjectile = (config: ProjectileConfig) => {
+        this.spawnProjectile(config);
+    };
+
+    private readonly onSplashDamage = (data: SplashDamageEvent) => {
+        this.handleSplashDamage(data);
+    };
+
+    private readonly onMeleeDamage = (data: MeleeDamageEvent) => {
+        this.handleMeleeDamage(data);
+    };
+
+    private readonly onUnitDeath = (data: UnitDeathEvent) => {
+        this.handleUnitDeath(data);
+    };
 
     constructor(scene: Phaser.Scene, gameMap: GameMap) {
         this.scene = scene;
@@ -49,24 +86,30 @@ export default class EntityManager {
         this.effectManager = new EffectManager(scene);
 
         // Listen for projectile events
-        scene.events.on('fireProjectile', (config: ProjectileConfig) => {
-            this.spawnProjectile(config);
-        });
+        scene.events.on('fireProjectile', this.onFireProjectile);
 
         // Listen for splash damage events
-        scene.events.on('splashDamage', (data: { x: number, y: number, radius: number, damage: number, team: string, attacker?: Unit | null }) => {
-            this.handleSplashDamage(data);
-        });
+        scene.events.on('splashDamage', this.onSplashDamage);
 
         // Listen for melee damage events (from Unit.ts)
-        scene.events.on('meleeDamage', (data: { attacker: Unit, target: Unit, baseDamage: number }) => {
-            this.handleMeleeDamage(data);
-        });
+        scene.events.on('meleeDamage', this.onMeleeDamage);
 
         // Listen for unit death events (skill triggers)
-        scene.events.on('unitDeath', (data: { unit: Unit }) => {
-            this.handleUnitDeath(data);
-        });
+        scene.events.on('unitDeath', this.onUnitDeath);
+    }
+
+    public destroy() {
+        if (this.destroyed) return;
+        this.destroyed = true;
+
+        this.scene.events.off('fireProjectile', this.onFireProjectile);
+        this.scene.events.off('splashDamage', this.onSplashDamage);
+        this.scene.events.off('meleeDamage', this.onMeleeDamage);
+        this.scene.events.off('unitDeath', this.onUnitDeath);
+        this.attackSlotByAttacker.clear();
+        this.units = [];
+        this.towers = [];
+        this.projectiles = [];
     }
 
     spawnUnit(x: number, y: number, team: 'blue' | 'red', unitKey: string): Unit[] {
@@ -126,6 +169,10 @@ export default class EntityManager {
         const spawnPoint = this.findValidSpawnPoint(x, y, radius);
         const unit = new Unit(this.scene, spawnPoint.x, spawnPoint.y, data.spriteKey, team, tunedData);
         unit.id = remoteId;
+        const body = unit.body as Phaser.Physics.Arcade.Body;
+        body.moves = false;
+        body.setAllowGravity(false);
+        body.setVelocity(0, 0);
         unit.setGameMap(this.gameMap);
         unit.setSimulationOrder(this.nextSimulationOrder++);
         unit.skillType = tunedData.skill;
@@ -190,7 +237,9 @@ export default class EntityManager {
     }
 
     private handleMeleeDamage(data: { attacker: Unit, target: Unit, baseDamage: number }) {
-        // Apply matchup bonus
+        const impactX = data.target.x;
+        const impactY = data.target.y;
+        // Keep one shared damage pipeline for role-neutral base damage and skills.
         let damage = this.skillSystem.calculateDamage(data.baseDamage, data.attacker.role, data.target.role);
 
         // Apply skill modifications (lifesteal, siege bonus, etc.)
@@ -199,6 +248,31 @@ export default class EntityManager {
         data.target.takeDamage(damage, data.attacker);
         const hitColor = data.attacker.team === 'blue' ? 0x8fd0ff : 0xff9f87;
         this.effectManager.playHit(data.target.x, data.target.y, 'melee', hitColor, damage);
+
+        const splashRadius = data.attacker.getMeleeSplashRadius();
+        if (splashRadius <= 0) return;
+        for (const secondary of this.units) {
+            if (
+                secondary === data.target
+                || secondary === data.attacker
+                || secondary.isTower
+                || !secondary.active
+                || secondary.state === UnitState.DIE
+                || secondary.team === data.attacker.team
+                || secondary.stats.movementType === 'air'
+            ) continue;
+            const distance = Phaser.Math.Distance.Between(impactX, impactY, secondary.x, secondary.y);
+            if (distance > splashRadius + secondary.getCollisionRadius()) continue;
+            const splashDamage = this.skillSystem.calculateDamage(
+                data.baseDamage,
+                data.attacker.role,
+                secondary.role,
+            );
+            secondary.takeDamage(splashDamage, data.attacker);
+            if (secondary.active && secondary.state !== UnitState.DIE) {
+                secondary.showHitReaction('splash', hitColor);
+            }
+        }
     }
 
     private handleUnitDeath(data: { unit: Unit }) {
@@ -209,7 +283,6 @@ export default class EntityManager {
                 projectile.destroy();
             }
         }
-        this.effectManager.playDeath(data.unit.x, data.unit.y, team, data.unit.isTower);
         this.skillSystem.onDeath(data.unit, () => {
             return this.units.filter(u =>
                 u.active && u.state !== UnitState.DIE && u.team !== team
@@ -248,12 +321,20 @@ export default class EntityManager {
     public playRemoteActiveSkillCast(unit: Unit, castSerial: number): boolean {
         if (!this.units.includes(unit) || !unit.active || unit.state === UnitState.DIE) return false;
         return unit.playRemoteActiveSkillCast(castSerial, (caster, definition, x, y) => {
-            this.playActiveSkillImpactSequence(caster.x, caster.y, x, y, caster.team, definition, undefined, undefined, false);
+            if (definition.key === 'dragon_blade') {
+                this.launchDragonBladeProjectile(caster, definition, x, y, false);
+                return;
+            }
+            this.playActiveSkillImpactSequence(caster.x, caster.y, x, y, caster.team, definition, undefined, undefined, false, caster);
         });
     }
 
     private resolveActiveSkillImpact(caster: Unit, definition: ActiveSkillDefinition, impactX: number, impactY: number) {
         if (!caster.active || caster.state === UnitState.DIE) return;
+        if (definition.key === 'dragon_blade') {
+            this.launchDragonBladeProjectile(caster, definition, impactX, impactY, true);
+            return;
+        }
         this.playActiveSkillImpactSequence(
             caster.x,
             caster.y,
@@ -272,7 +353,257 @@ export default class EntityManager {
                 });
             },
             (elapsedMs) => this.applyActiveSkillZoneTick(caster, impactX, impactY, definition, elapsedMs),
+            true,
+            caster,
         );
+    }
+
+    private launchDragonBladeProjectile(
+        caster: Unit,
+        definition: ActiveSkillDefinition,
+        destinationX: number,
+        destinationY: number,
+        applyDamage: boolean,
+    ) {
+        const settings = definition.travelingProjectile;
+        if (!settings) return;
+        const origin = caster.getActiveSkillReleaseOrigin() ?? { x: caster.x, y: caster.y };
+        const rawDistance = Phaser.Math.Distance.Between(origin.x, origin.y, destinationX, destinationY);
+        const fallbackY = caster.team === 'blue' ? -1 : 1;
+        const directionX = rawDistance > 0.001 ? (destinationX - origin.x) / rawDistance : 0;
+        const directionY = rawDistance > 0.001 ? (destinationY - origin.y) / rawDistance : fallbackY;
+        const distance = Math.min(settings.maxRange, Math.max(1, rawDistance));
+        const targetX = Phaser.Math.Clamp(origin.x + directionX * distance, 18, CONSTANTS.SCREEN_WIDTH - 18);
+        const targetY = Phaser.Math.Clamp(origin.y + directionY * distance, 24, CONSTANTS.ARENA.UI_START - 38);
+        const firstTexture = `${settings.texturePrefix}_0`;
+        if (!this.scene.textures.exists(firstTexture)) {
+            return;
+        }
+
+        const dragon = this.scene.add.image(origin.x, origin.y, firstTexture)
+            .setOrigin(
+                BARBARIAN_DRAGON_SKILL_ASSETS.dragonTailOriginX,
+                BARBARIAN_DRAGON_SKILL_ASSETS.dragonTailOriginY,
+            )
+            .setRotation(Math.atan2(directionY, directionX))
+            .setDepth(CONSTANTS.DEPTH.PROJECTILE + 8)
+            .setDisplaySize(settings.displaySize, settings.displaySize);
+        const endScaleX = dragon.scaleX * settings.endScale;
+        const endScaleY = dragon.scaleY * settings.endScale;
+        dragon.setScale(dragon.scaleX * settings.startScale, dragon.scaleY * settings.startScale);
+
+        let resolved = false;
+        let frame = 0;
+        let nextImpactIndex = 0;
+        let nextImpactDistance = Math.min(
+            distance,
+            BARBARIAN_DRAGON_SKILL_ASSETS.pathImpactStartOffsetPx,
+        );
+        const damagedTargets = new Set<number | string>();
+        const pathImpacts: Phaser.GameObjects.Image[] = [];
+        const animationTimer = this.scene.time.addEvent({
+            delay: Math.round(1000 / settings.fps),
+            loop: true,
+            callback: () => {
+                if (!dragon.active) return;
+                frame = (frame + 1) % settings.frameCount;
+                const texture = `${settings.texturePrefix}_${frame}`;
+                if (this.scene.textures.exists(texture)) dragon.setTexture(texture);
+            },
+        });
+
+        let travelTween: Phaser.Tweens.Tween | null = null;
+        const clearPathImpacts = (immediate: boolean) => {
+            const activeImpacts = pathImpacts.filter(impact => impact.active);
+            if (activeImpacts.length === 0) return;
+            if (immediate) {
+                for (const impact of activeImpacts) impact.destroy();
+                return;
+            }
+            this.scene.time.delayedCall(BARBARIAN_DRAGON_SKILL_ASSETS.pathImpactHoldMs, () => {
+                for (const impact of activeImpacts) {
+                    if (!impact.active) continue;
+                    this.scene.tweens.add({
+                        targets: impact,
+                        alpha: 0,
+                        scaleX: impact.scaleX * 1.05,
+                        scaleY: impact.scaleY * 1.05,
+                        duration: 180,
+                        ease: 'Quad.In',
+                        onComplete: () => {
+                            if (impact.active) impact.destroy();
+                        },
+                    });
+                }
+            });
+        };
+        const finish = (completedRoute: boolean) => {
+            if (resolved) return;
+            resolved = true;
+            animationTimer.remove(false);
+            if (travelTween?.isPlaying()) travelTween.stop();
+            if (dragon.active) dragon.destroy();
+            clearPathImpacts(!completedRoute);
+            if (completedRoute && applyDamage) {
+                this.scene.events.emit('activeSkillImpact', {
+                    caster,
+                    skillKey: definition.key,
+                    waveIndex: 0,
+                    x: targetX,
+                    y: targetY,
+                });
+            }
+        };
+
+        travelTween = this.scene.tweens.add({
+            targets: dragon,
+            x: targetX,
+            y: targetY,
+            scaleX: endScaleX,
+            scaleY: endScaleY,
+            duration: Math.max(120, Math.round((distance / settings.speed) * 1000)),
+            ease: 'Linear',
+            onUpdate: (tween) => {
+                if (!caster.active || caster.state === UnitState.DIE) {
+                    finish(false);
+                    return;
+                }
+                const progress = tween.progress;
+                const travelledDistance = progress * distance;
+                while (
+                    nextImpactDistance <= distance
+                    && travelledDistance >= nextImpactDistance
+                ) {
+                    const impactProgress = Phaser.Math.Clamp(nextImpactDistance / distance, 0, 1);
+                    const impactX = Phaser.Math.Linear(origin.x, targetX, impactProgress);
+                    const impactY = Phaser.Math.Linear(origin.y, targetY, impactProgress);
+                    const impact = this.createDragonBladePathImpact(
+                        impactX,
+                        impactY,
+                        definition,
+                        Phaser.Math.Linear(
+                            BARBARIAN_DRAGON_SKILL_ASSETS.pathImpactStartScale,
+                            BARBARIAN_DRAGON_SKILL_ASSETS.pathImpactEndScale,
+                            impactProgress,
+                        ),
+                    );
+                    if (impact) pathImpacts.push(impact);
+                    this.playDragonBladePathDust(impactX, impactY, directionX, directionY, nextImpactIndex);
+                    // The visuals are continuous, but shaking every 30px would feel noisy.
+                    if (nextImpactIndex % 3 === 0) {
+                        this.scene.cameras.main.shake(54, 0.0011);
+                    }
+                    nextImpactIndex += 1;
+                    nextImpactDistance += BARBARIAN_DRAGON_SKILL_ASSETS.pathImpactSpacingPx;
+                }
+
+                for (const target of this.units) {
+                    if (!target.active || target.state === UnitState.DIE || target.team === caster.team || target === caster) continue;
+                    if (target.isTower && !definition.targetMask.towers) continue;
+                    if (!target.isTower && !definition.targetMask.units) continue;
+                    if (target.stats.movementType === 'air' && !definition.targetMask.air) continue;
+                    if (target.stats.movementType === 'ground' && !definition.targetMask.ground) continue;
+                    const identity = target.simulationOrder > 0 ? target.simulationOrder : target.id;
+                    if (damagedTargets.has(identity)) continue;
+                    if (
+                        Phaser.Math.Distance.Between(dragon.x, dragon.y, target.x, target.y)
+                        > settings.collisionRadius + target.getCollisionRadius()
+                    ) continue;
+                    damagedTargets.add(identity);
+                    if (!applyDamage) continue;
+                    const wave = definition.impactWaves[0];
+                    const damage = Math.max(
+                        1,
+                        Math.round((wave?.damage ?? definition.damage) * (target.isTower
+                            ? wave?.towerDamageMultiplier ?? definition.towerDamageMultiplier
+                            : 1)),
+                    );
+                    target.takeDamage(damage, caster);
+                    if (!target.isTower && target.active && target.state !== UnitState.DIE) {
+                        target.applyDirectionalKnockback(
+                            directionX,
+                            directionY,
+                            settings.knockbackDistance,
+                            settings.knockbackDurationMs,
+                        );
+                    }
+                }
+            },
+            onComplete: () => finish(true),
+        });
+    }
+
+    private createDragonBladePathImpact(
+        x: number,
+        y: number,
+        definition: ActiveSkillDefinition,
+        scale: number,
+    ): Phaser.GameObjects.Image | null {
+        const firstTexture = `${definition.vfx.texturePrefix}_0`;
+        if (!this.scene.textures.exists(firstTexture)) return null;
+        const impact = this.scene.add.image(Math.round(x), Math.round(y), firstTexture)
+            .setDepth(CONSTANTS.DEPTH.PROJECTILE + 5)
+            .setDisplaySize(definition.vfx.displaySize * scale, definition.vfx.displaySize * scale);
+        let frame = 0;
+        const frameDuration = Math.round(1000 / definition.vfx.fps);
+        const timer = this.scene.time.addEvent({
+            delay: frameDuration,
+            repeat: Math.max(0, definition.vfx.frameCount - 2),
+            callback: () => {
+                frame += 1;
+                const texture = `${definition.vfx.texturePrefix}_${frame}`;
+                if (impact.active && this.scene.textures.exists(texture)) impact.setTexture(texture);
+            },
+        });
+        this.scene.time.delayedCall(frameDuration * definition.vfx.frameCount + 35, () => {
+            timer.remove(false);
+        });
+        return impact;
+    }
+
+    private playDragonBladePathDust(
+        x: number,
+        y: number,
+        directionX: number,
+        directionY: number,
+        impactIndex: number,
+    ) {
+        const perpendicularX = -directionY;
+        const perpendicularY = directionX;
+        const hasDustTexture = this.scene.textures.exists('battle_vfx_dust');
+        const routeRotation = Math.atan2(directionY, directionX);
+        for (const side of [-1, 1]) {
+            for (let copy = 0; copy < 3; copy += 1) {
+                this.scene.time.delayedCall(copy * 38, () => {
+                    const lateralDistance = side * (
+                        BARBARIAN_DRAGON_SKILL_ASSETS.sandTrailSideOffset
+                        + 5
+                        + copy * 7
+                    );
+                    const longitudinalDistance = (copy - 1) * 14;
+                    const dustX = x + directionX * longitudinalDistance + perpendicularX * lateralDistance;
+                    const dustY = y + directionY * longitudinalDistance + perpendicularY * lateralDistance;
+                    const dust = hasDustTexture
+                        ? this.scene.add.image(dustX, dustY, 'battle_vfx_dust')
+                            .setDisplaySize(24 + impactIndex * 3 + copy * 2, 18 + impactIndex * 2 + copy * 2)
+                            .setRotation(routeRotation + side * 0.18)
+                            .setFlipX(side < 0)
+                        : this.scene.add.ellipse(dustX, dustY, 16, 10, 0xc8a665, 0.54);
+                    dust.setAlpha(0.68).setDepth(CONSTANTS.DEPTH.PROJECTILE + 4);
+                    this.scene.tweens.add({
+                        targets: dust,
+                        x: dustX + perpendicularX * side * (9 + copy * 3),
+                        y: dustY + perpendicularY * side * (9 + copy * 3) - 4,
+                        alpha: 0,
+                        scaleX: dust.scaleX * 1.35,
+                        scaleY: dust.scaleY * 1.25,
+                        duration: 360 + copy * 45,
+                        ease: 'Quad.Out',
+                        onComplete: () => dust.destroy(),
+                    });
+                });
+            }
+        }
     }
 
     private applyActiveSkillWaveDamage(
@@ -293,11 +624,22 @@ export default class EntityManager {
             const targetRadius = Math.max(0, target.getCollisionRadius());
             if (distance > wave.radius + targetRadius) continue;
 
-            const damage = Math.max(1, Math.round(
+            const damage = Math.round(
                 wave.damage * (target.isTower ? wave.towerDamageMultiplier : 1)
-            ));
-            target.takeDamage(damage, caster);
-            if (definition.persistentZone?.root && !target.isTower && target.active && target.state !== UnitState.DIE) {
+            );
+            // A zero multiplier is intentional for control-only tower effects such as
+            // Spider-Man's web: bind the tower without dealing chip damage.
+            if (damage > 0) target.takeDamage(damage, caster);
+            if (
+                !target.isTower
+                && target.active
+                && target.state !== UnitState.DIE
+                && wave.knockupHeight
+                && wave.knockupDurationMs
+            ) {
+                target.applyKnockup(wave.knockupHeight, wave.knockupDurationMs);
+            }
+            if (definition.persistentZone?.root && target.active && target.state !== UnitState.DIE) {
                 target.addDebuff({ type: 'stun', duration: definition.persistentZone.durationMs });
             }
             if (target.active && target.state !== UnitState.DIE) {
@@ -317,12 +659,17 @@ export default class EntityManager {
         if (!zone || !caster.active || caster.state === UnitState.DIE) return;
         const remainingMs = Math.max(0, zone.durationMs - elapsedMs);
         for (const target of this.units) {
-            if (!target.active || target.state === UnitState.DIE || target.team === caster.team || target.isTower) continue;
+            if (!target.active || target.state === UnitState.DIE || target.team === caster.team) continue;
+            if (target.isTower && !definition.targetMask.towers) continue;
+            if (!target.isTower && !definition.targetMask.units) continue;
             if (target.stats.movementType === 'air' && !definition.targetMask.air) continue;
             if (target.stats.movementType === 'ground' && !definition.targetMask.ground) continue;
             const distance = Phaser.Math.Distance.Between(impactX, impactY, target.x, target.y);
             if (distance > definition.radius + target.getCollisionRadius()) continue;
-            target.takeDamage(zone.damagePerTick, caster);
+            const tickDamage = target.isTower
+                ? Math.round(zone.damagePerTick * definition.towerDamageMultiplier)
+                : zone.damagePerTick;
+            if (tickDamage > 0) target.takeDamage(tickDamage, caster);
             if (zone.root && remainingMs > 0 && target.active && target.state !== UnitState.DIE) {
                 target.addDebuff({ type: 'stun', duration: Math.max(zone.tickIntervalMs + 120, remainingMs) });
             }
@@ -339,6 +686,7 @@ export default class EntityManager {
         onWave?: (wave: ActiveSkillImpactWave, waveIndex: number) => void,
         onZoneTick?: (elapsedMs: number) => void,
         renderPersistentZone = true,
+        caster?: Unit,
     ) {
         const persistentEffects: Phaser.GameObjects.GameObject[] = [];
         const frameDuration = Math.max(40, Math.round(1000 / definition.vfx.fps));
@@ -362,6 +710,10 @@ export default class EntityManager {
             for (let elapsedMs = tickIntervalMs; elapsedMs <= durationMs; elapsedMs += tickIntervalMs) {
                 this.scene.time.delayedCall(elapsedMs, () => onZoneTick(elapsedMs));
             }
+        }
+
+        if (definition.key === 'web_snare' && definition.persistentZone && definition.sustainedFollowUp && caster) {
+            this.playWebSnareFollowUpSequence(caster, x, y, definition, Boolean(onZoneTick));
         }
 
         const fadeDelay = definition.persistentZone?.durationMs
@@ -425,6 +777,123 @@ export default class EntityManager {
         });
     }
 
+    private playWebSnareFollowUpSequence(
+        caster: Unit,
+        targetX: number,
+        targetY: number,
+        definition: ActiveSkillDefinition,
+        applyDamage: boolean,
+    ) {
+        const persistentZone = definition.persistentZone;
+        const followUp = definition.sustainedFollowUp;
+        if (!persistentZone || !followUp) return;
+
+        for (
+            let elapsedMs = followUp.initialDelayMs;
+            elapsedMs < persistentZone.durationMs;
+            elapsedMs += followUp.intervalMs
+        ) {
+            this.scene.time.delayedCall(elapsedMs, () => {
+                if (!caster.active || caster.state === UnitState.DIE) return;
+                const target = this.getWebSnareFollowUpTarget(caster, targetX, targetY, definition.radius);
+                if (!target) return;
+                caster.playActiveSkillFollowUp(
+                    target.x - caster.x,
+                    target.y - caster.y,
+                    followUp.animationFrames,
+                    followUp.animationFrameDurationMs,
+                );
+                this.playWebSnareFollowUpProjectile(
+                    caster,
+                    target,
+                    targetX,
+                    targetY,
+                    definition,
+                    applyDamage,
+                );
+            });
+        }
+    }
+
+    private getWebSnareFollowUpTarget(
+        caster: Unit,
+        zoneX: number,
+        zoneY: number,
+        zoneRadius: number,
+    ): Unit | null {
+        const targets = this.units
+            .filter(unit => unit !== caster
+                && !unit.isTower
+                && unit.team !== caster.team
+                && unit.active
+                && unit.state !== UnitState.DIE
+                && Phaser.Math.Distance.Between(unit.x, unit.y, zoneX, zoneY) <= zoneRadius + unit.getCollisionRadius())
+            .sort((left, right) => {
+                const distanceDifference = Phaser.Math.Distance.Between(caster.x, caster.y, left.x, left.y)
+                    - Phaser.Math.Distance.Between(caster.x, caster.y, right.x, right.y);
+                return Math.abs(distanceDifference) > 0.01
+                    ? distanceDifference
+                    : String(left.id).localeCompare(String(right.id));
+            });
+        return targets[0] ?? null;
+    }
+
+    private playWebSnareFollowUpProjectile(
+        caster: Unit,
+        target: Unit,
+        zoneX: number,
+        zoneY: number,
+        definition: ActiveSkillDefinition,
+        applyDamage: boolean,
+    ) {
+        const projectile = definition.projectileVfx;
+        const followUp = definition.sustainedFollowUp;
+        if (!projectile || !followUp) return;
+        const firstTexture = `${projectile.texturePrefix}_0`;
+        if (!this.scene.textures.exists(firstTexture)) return;
+
+        const originX = caster.x;
+        const originY = caster.y - 12;
+        const targetX = target.x;
+        const targetY = target.y;
+        const distance = Phaser.Math.Distance.Between(originX, originY, targetX, targetY);
+        const angle = Phaser.Math.Angle.Between(originX, originY, targetX, targetY);
+        const web = this.scene.add.image(originX, originY, firstTexture)
+            .setOrigin(0, 0.5)
+            .setRotation(angle)
+            .setDisplaySize(Math.max(14, distance), followUp.projectileThickness)
+            .setDepth(CONSTANTS.DEPTH.HUD - 7);
+        const endScaleX = web.scaleX;
+        const endScaleY = web.scaleY;
+        web.setScale(endScaleX * 0.06, endScaleY * 0.72).setAlpha(0.9);
+
+        this.scene.tweens.add({
+            targets: web,
+            scaleX: endScaleX,
+            scaleY: endScaleY,
+            duration: followUp.projectileTravelMs,
+            ease: 'Cubic.Out',
+        });
+        this.scene.time.delayedCall(Math.round(1000 / projectile.fps), () => {
+            const nextTexture = `${projectile.texturePrefix}_1`;
+            if (web.active && this.scene.textures.exists(nextTexture)) web.setTexture(nextTexture);
+        });
+        this.scene.time.delayedCall(followUp.projectileTravelMs + 90, () => {
+            if (!web.active) return;
+            this.scene.tweens.add({
+                targets: web,
+                alpha: 0,
+                duration: 110,
+                onComplete: () => web.destroy(),
+            });
+        });
+        this.scene.time.delayedCall(followUp.projectileTravelMs, () => {
+            if (!applyDamage || !target.active || target.state === UnitState.DIE || target.team === caster.team) return;
+            if (Phaser.Math.Distance.Between(target.x, target.y, zoneX, zoneY) > definition.radius + target.getCollisionRadius()) return;
+            target.takeDamage(followUp.damagePerShot, caster);
+        });
+    }
+
     private playActiveSkillImpactWave(
         x: number,
         y: number,
@@ -434,9 +903,11 @@ export default class EntityManager {
         persistentEffects: Phaser.GameObjects.GameObject[],
     ) {
         const color = team === 'blue' ? 0x78cfff : 0xff866f;
-        const depth = definition.persistentZone
-            ? CONSTANTS.DEPTH.UNIT_SHADOW + 1
-            : CONSTANTS.DEPTH.PROJECTILE + 4;
+        const depth = definition.key === 'web_snare'
+            ? CONSTANTS.DEPTH.HUD - 8
+            : definition.persistentZone
+                ? CONSTANTS.DEPTH.UNIT_SHADOW + 1
+                : CONSTANTS.DEPTH.PROJECTILE + 4;
         const frameDuration = Math.max(40, Math.round(1000 / definition.vfx.fps));
         const firstTexture = `${definition.vfx.texturePrefix}_0`;
 

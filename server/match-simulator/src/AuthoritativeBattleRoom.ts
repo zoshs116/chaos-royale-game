@@ -5,6 +5,10 @@ import {
     type ActiveSkillKey,
     type ActiveSkillPhase,
 } from '../../../src/data/ActiveSkillData';
+import {
+    resolveSharedCombatTarget,
+    type SharedTargetView,
+} from '../../../src/systems/combat/SharedTargeting';
 
 export type BattleTeam = 'blue' | 'red';
 export type BattleState = 'waiting' | 'running' | 'finished';
@@ -64,6 +68,11 @@ export interface BattleUnitSnapshot {
     activeSkillPhase: ActiveSkillPhase | null;
     activeSkillCooldownRemainingMs: number;
     activeSkillCastSerial: number;
+    spawnTick: number;
+    attackTick: number;
+    hitTick: number;
+    jumpTick: number;
+    activeSkillCastTick: number;
 }
 
 export interface BattleProjectileSnapshot {
@@ -101,6 +110,8 @@ export interface BattleTowerSnapshot {
 export interface BattleSnapshot {
     roomId: string;
     tick: number;
+    sequence: number;
+    serverTimeMs: number;
     state: BattleState;
     paused: boolean;
     disconnectGraceRemainingMs: number | null;
@@ -116,8 +127,8 @@ export interface BattleSnapshot {
         playerId: string;
         team: BattleTeam;
         connected: boolean;
-        hand: string[];
-        nextUnitKey: string;
+        hand: Array<string | null>;
+        nextUnitKey: string | null;
     }>;
     inputCount: number;
     startedAtUtc: string | null;
@@ -131,7 +142,7 @@ export interface BattleSnapshot {
 }
 
 type PlayerState = BattlePlayerConfig & {
-    hand: string[];
+    hand: Array<string | null>;
     drawIndex: number;
     elixir: number;
     lastSeq: number;
@@ -157,6 +168,9 @@ type BattleUnit = BattleUnitSnapshot & {
     pendingAttack: PendingAttack | null;
     towerTargetCommitted: boolean;
     stunnedUntilMs: number;
+    knockupStartedAtMs: number;
+    knockupUntilMs: number;
+    knockupHeight: number;
     jumpCooldownUntilMs: number;
     jumpStartedAtMs: number;
     jumpEndsAtMs: number;
@@ -175,6 +189,12 @@ type BattleUnit = BattleUnitSnapshot & {
     activeSkillEffectX: number;
     activeSkillEffectY: number;
     activeSkillNextWaveIndex: number;
+    progressCheckAtMs: number;
+    progressX: number;
+    progressY: number;
+    stalledChecks: number;
+    ignoredTargetId: string | null;
+    ignoreTargetUntilMs: number;
 };
 
 type BattleSkillZone = BattleSkillZoneSnapshot & {
@@ -183,6 +203,12 @@ type BattleSkillZone = BattleSkillZoneSnapshot & {
     tickIntervalMs: number;
     damagePerTick: number;
     root: boolean;
+    casterId: string;
+    nextFollowUpAtMs: number;
+    followUpIntervalMs: number;
+    followUpDamage: number;
+    affectsTowers: boolean;
+    towerDamageMultiplier: number;
 };
 
 type BattleTower = BattleTowerSnapshot & {
@@ -191,6 +217,7 @@ type BattleTower = BattleTowerSnapshot & {
     collisionRadius: number;
     attackCooldownMs: number;
     nextAttackAtMs: number;
+    disabledUntilMs: number;
 };
 
 type BattleProjectile = BattleProjectileSnapshot & {
@@ -227,7 +254,7 @@ const BRIDGE_X = [86, 266] as const;
 const BRIDGE_HALF_WIDTH = 34;
 const BRIDGE_APPROACH = 48;
 
-const TOWER_DEFINITIONS: Array<Omit<BattleTower, 'hp' | 'active' | 'nextAttackAtMs'>> = [
+const TOWER_DEFINITIONS: Array<Omit<BattleTower, 'hp' | 'active' | 'nextAttackAtMs' | 'disabledUntilMs'>> = [
     { id: 'blue:king', team: 'blue', type: 'king', x: 180, y: 560, maxHp: 4000, damage: 110, range: 130, collisionRadius: 28, attackCooldownMs: 1000 },
     { id: 'blue:princess:left', team: 'blue', type: 'princess', x: 86, y: 496, maxHp: 2500, damage: 80, range: 180, collisionRadius: 22, attackCooldownMs: 800 },
     { id: 'blue:princess:right', team: 'blue', type: 'princess', x: 270, y: 496, maxHp: 2500, damage: 80, range: 180, collisionRadius: 22, attackCooldownMs: 800 },
@@ -246,6 +273,7 @@ export default class AuthoritativeBattleRoom {
         hp: tower.maxHp,
         active: true,
         nextAttackAtMs: 0,
+        disabledUntilMs: 0,
     }));
     private tick = 0;
     private elapsedMs = 0;
@@ -258,6 +286,7 @@ export default class AuthoritativeBattleRoom {
     private skillZoneCounter = 0;
     private projectileCounter = 0;
     private inputCount = 0;
+    private snapshotSequence = 0;
     private startedAtMs: number | null = null;
     private endedAtMs: number | null = null;
 
@@ -307,9 +336,10 @@ export default class AuthoritativeBattleRoom {
         const player = this.players.get(command.playerId);
         if (!player) return { accepted: false, reason: 'player_not_in_room' };
         if (this.state !== 'running') return { accepted: false, reason: 'match_not_running' };
-        if (!Number.isSafeInteger(command.seq) || command.seq <= player.lastSeq) {
+        if (!Number.isSafeInteger(command.seq)) {
             return { accepted: false, reason: 'duplicate_or_stale_sequence' };
         }
+        if (command.seq <= player.lastSeq) return { accepted: true, reason: 'already_applied' };
         player.lastSeq = command.seq;
         this.inputCount += 1;
         if (command.type === 'forfeit') {
@@ -354,6 +384,7 @@ export default class AuthoritativeBattleRoom {
     }
 
     public snapshot(): BattleSnapshot {
+        this.snapshotSequence += 1;
         const ackByPlayer: Record<string, number> = {};
         let blueElixir = 0;
         let redElixir = 0;
@@ -368,6 +399,8 @@ export default class AuthoritativeBattleRoom {
         return {
             roomId: this.roomId,
             tick: this.tick,
+            sequence: this.snapshotSequence,
+            serverTimeMs: this.now(),
             state: this.state,
             paused: this.state === 'running' && disconnectGraceRemainingMs !== null,
             disconnectGraceRemainingMs,
@@ -384,7 +417,7 @@ export default class AuthoritativeBattleRoom {
                 team: player.team,
                 connected: player.connected,
                 hand: [...player.hand],
-                nextUnitKey: player.deck[player.drawIndex] ?? player.deck[0],
+                nextUnitKey: this.peekNextAvailableCard(player),
             })),
             inputCount: this.inputCount,
             startedAtUtc: this.startedAtMs === null ? null : new Date(this.startedAtMs).toISOString(),
@@ -399,6 +432,9 @@ export default class AuthoritativeBattleRoom {
                 pendingAttack: _pending,
                 towerTargetCommitted: _committed,
                 stunnedUntilMs: _stunned,
+                knockupStartedAtMs: _knockupStarted,
+                knockupUntilMs: _knockupUntil,
+                knockupHeight: _knockupHeight,
                 jumpCooldownUntilMs: _jumpCooldown,
                 jumpStartedAtMs: _jumpStarted,
                 jumpEndsAtMs: _jumpEnds,
@@ -417,17 +453,63 @@ export default class AuthoritativeBattleRoom {
                 activeSkillEffectX: _skillEffectX,
                 activeSkillEffectY: _skillEffectY,
                 activeSkillNextWaveIndex: _skillWaveIndex,
+                progressCheckAtMs: _progressCheck,
+                progressX: _progressX,
+                progressY: _progressY,
+                stalledChecks: _stalledChecks,
+                ignoredTargetId: _ignoredTargetId,
+                ignoreTargetUntilMs: _ignoreTargetUntil,
                 ...unit
             }) => ({ ...unit })),
             projectiles: this.projectiles.map(({ attackerId: _attacker, damage: _damage, splashRadius: _splash, speed: _speed, ageMs: _age, maxLifetimeMs: _lifetime, ...projectile }) => ({ ...projectile })),
-            skillZones: this.skillZones.map(({ expiresAtMs: _expires, nextTickAtMs: _nextTick, tickIntervalMs: _interval, damagePerTick: _damage, root: _root, ...zone }) => ({
+            skillZones: this.skillZones.map(({ expiresAtMs: _expires, nextTickAtMs: _nextTick, tickIntervalMs: _interval, damagePerTick: _damage, root: _root, casterId: _casterId, nextFollowUpAtMs: _nextFollowUp, followUpIntervalMs: _followUpInterval, followUpDamage: _followUpDamage, affectsTowers: _affectsTowers, towerDamageMultiplier: _towerMultiplier, ...zone }) => ({
                 ...zone,
                 remainingMs: Math.max(0, _expires - this.elapsedMs),
             })),
-            towers: this.towers.map(({ damage: _damage, range: _range, collisionRadius: _radius, attackCooldownMs: _cooldown, nextAttackAtMs: _next, ...tower }) => ({ ...tower })),
+            towers: this.towers.map(({ damage: _damage, range: _range, collisionRadius: _radius, attackCooldownMs: _cooldown, nextAttackAtMs: _next, disabledUntilMs: _disabled, ...tower }) => ({ ...tower })),
             winner: this.winner,
             finishReason: this.finishReason,
         };
+    }
+
+    private getLockedActiveSkillUnitKeys(playerId: string, additionallyLockedUnitKey?: string): Set<string> {
+        const locked = new Set(
+            this.units
+                .filter(unit => unit.ownerId === playerId && unit.hp > 0 && Boolean(unit.profile.activeSkill))
+                .map(unit => unit.unitKey),
+        );
+        if (additionallyLockedUnitKey && getAuthoritativeCombatProfile(additionallyLockedUnitKey)?.activeSkill) {
+            locked.add(additionallyLockedUnitKey);
+        }
+        return locked;
+    }
+
+    private drawNextAvailableCard(player: PlayerState, additionallyLockedUnitKey?: string): string | null {
+        const locked = this.getLockedActiveSkillUnitKeys(player.playerId, additionallyLockedUnitKey);
+        for (let attempt = 0; attempt < player.deck.length; attempt += 1) {
+            const unitKey = player.deck[player.drawIndex];
+            player.drawIndex = (player.drawIndex + 1) % player.deck.length;
+            if (!locked.has(unitKey)) return unitKey;
+        }
+        return null;
+    }
+
+    private peekNextAvailableCard(player: PlayerState): string | null {
+        const locked = this.getLockedActiveSkillUnitKeys(player.playerId);
+        for (let attempt = 0; attempt < player.deck.length; attempt += 1) {
+            const unitKey = player.deck[(player.drawIndex + attempt) % player.deck.length];
+            if (!locked.has(unitKey)) return unitKey;
+        }
+        return null;
+    }
+
+    private refillAvailableHandSlots(player: PlayerState): void {
+        for (let handIndex = 0; handIndex < player.hand.length; handIndex += 1) {
+            if (player.hand[handIndex] !== null) continue;
+            const replacement = this.drawNextAvailableCard(player);
+            if (!replacement) return;
+            player.hand[handIndex] = replacement;
+        }
     }
 
     private applySpawn(player: PlayerState, command: BattleSpawnCommand): { accepted: boolean; reason?: string } {
@@ -444,11 +526,7 @@ export default class AuthoritativeBattleRoom {
         }
 
         player.elixir -= cost;
-        const replacement = player.deck[player.drawIndex];
-        if (replacement) {
-            player.hand[command.handIndex] = replacement;
-            player.drawIndex = (player.drawIndex + 1) % player.deck.length;
-        }
+        player.hand[command.handIndex] = this.drawNextAvailableCard(player, command.unitKey);
         for (const offset of profile.spawnOffsets) {
             this.unitCounter += 1;
             const forward = player.team === 'blue' ? 1 : -1;
@@ -475,6 +553,11 @@ export default class AuthoritativeBattleRoom {
                 activeSkillPhase: profile.activeSkill ? 'ready' : null,
                 activeSkillCooldownRemainingMs: 0,
                 activeSkillCastSerial: 0,
+                spawnTick: this.tick,
+                attackTick: -1,
+                hitTick: -1,
+                jumpTick: -1,
+                activeSkillCastTick: -1,
                 profile,
                 lane: laneFromX(x),
                 spawnReadyAtMs: this.elapsedMs + profile.deployDelayMs,
@@ -484,6 +567,9 @@ export default class AuthoritativeBattleRoom {
                 pendingAttack: null,
                 towerTargetCommitted: false,
                 stunnedUntilMs: 0,
+                knockupStartedAtMs: 0,
+                knockupUntilMs: 0,
+                knockupHeight: 0,
                 jumpCooldownUntilMs: 0,
                 jumpStartedAtMs: 0,
                 jumpEndsAtMs: 0,
@@ -502,6 +588,12 @@ export default class AuthoritativeBattleRoom {
                 activeSkillEffectX: x,
                 activeSkillEffectY: y,
                 activeSkillNextWaveIndex: 0,
+                progressCheckAtMs: this.elapsedMs + 650,
+                progressX: x,
+                progressY: y,
+                stalledChecks: 0,
+                ignoredTargetId: null,
+                ignoreTargetUntilMs: 0,
             });
         }
         return { accepted: true };
@@ -547,7 +639,10 @@ export default class AuthoritativeBattleRoom {
         unit.activeSkillReadyAtMs = this.elapsedMs + definition.cooldownMs;
         unit.activeSkillStartedAtMs = this.elapsedMs;
         unit.activeSkillImpactAtMs = this.elapsedMs + timing.impactMs;
-        unit.activeSkillEndsAtMs = this.elapsedMs + timing.totalMs;
+        unit.activeSkillEndsAtMs = this.elapsedMs + Math.max(
+            timing.totalMs,
+            timing.impactMs + (definition.sustainedFollowUp?.channelDurationMs ?? 0),
+        );
         unit.activeSkillStartX = unit.x;
         unit.activeSkillStartY = unit.y;
         unit.activeSkillLandingX = landing.x;
@@ -556,6 +651,7 @@ export default class AuthoritativeBattleRoom {
         unit.activeSkillEffectY = effectPoint.y;
         unit.activeSkillNextWaveIndex = 0;
         unit.activeSkillCastSerial += 1;
+        unit.activeSkillCastTick = this.tick;
         return { accepted: true };
     }
 
@@ -568,6 +664,7 @@ export default class AuthoritativeBattleRoom {
     private updateUnits(): void {
         for (const unit of [...this.units].sort((a, b) => a.id.localeCompare(b.id))) {
             if (unit.hp <= 0) continue;
+            this.updateKnockupElevation(unit);
             if (unit.activeSkillKey) {
                 unit.activeSkillCooldownRemainingMs = Math.max(0, unit.activeSkillReadyAtMs - this.elapsedMs);
                 if (unit.activeSkillPhase === 'cooldown' && unit.activeSkillCooldownRemainingMs <= 0) {
@@ -608,11 +705,13 @@ export default class AuthoritativeBattleRoom {
             this.assignTarget(unit, target);
             if (!target) {
                 unit.state = 'idle';
+                this.resetRouteProgress(unit);
                 continue;
             }
             this.faceTarget(unit, target.x, target.y);
             if (this.isInAttackRange(unit, target, true)) {
                 unit.state = 'attacking';
+                this.resetRouteProgress(unit);
                 if (unit.firstHitReadyAtMs === 0) unit.firstHitReadyAtMs = this.elapsedMs + unit.profile.firstHitDelayMs;
                 if (this.elapsedMs >= unit.firstHitReadyAtMs && this.elapsedMs >= unit.nextAttackAtMs) {
                     this.beginAttack(unit, target);
@@ -623,6 +722,7 @@ export default class AuthoritativeBattleRoom {
             unit.firstHitReadyAtMs = 0;
             unit.state = 'moving';
             this.moveTowardTarget(unit, target);
+            this.updateRouteProgress(unit, target);
         }
     }
 
@@ -637,6 +737,11 @@ export default class AuthoritativeBattleRoom {
         const flightDuration = Math.max(1, unit.activeSkillImpactAtMs - unit.activeSkillStartedAtMs);
         const flightProgress = clamp((this.elapsedMs - unit.activeSkillStartedAtMs) / flightDuration, 0, 1);
         if (flightProgress < 1) {
+            if (definition.movementMode === 'stationary-release') {
+                unit.x = unit.activeSkillStartX;
+                unit.y = unit.activeSkillStartY;
+                unit.elevation = 0;
+            } else {
             const backwardVault = definition.movementMode === 'backward-vault';
             const vaultEnd = 0.72;
             const vaultProgress = clamp(flightProgress / vaultEnd, 0, 1);
@@ -661,6 +766,7 @@ export default class AuthoritativeBattleRoom {
                 elevationProgress = 1 - Math.pow(descent, 3);
             }
             unit.elevation = Math.max(0, elevationProgress) * definition.liftHeight;
+            }
         } else {
             unit.x = unit.activeSkillLandingX;
             unit.y = unit.activeSkillLandingY;
@@ -686,20 +792,117 @@ export default class AuthoritativeBattleRoom {
     ): void {
         const impactX = unit.activeSkillEffectX;
         const impactY = unit.activeSkillEffectY;
+        unit.activeSkillEffectX = impactX;
+        unit.activeSkillEffectY = impactY;
+        const directionLength = Math.max(0.001, Math.hypot(impactX - unit.activeSkillStartX, impactY - unit.activeSkillStartY));
+        const knockbackX = (impactX - unit.activeSkillStartX) / directionLength;
+        const knockbackY = (impactY - unit.activeSkillStartY) / directionLength;
         for (const target of this.units) {
             if (target === unit || target.team === unit.team || target.hp <= 0 || !definition.targetMask.units) continue;
             if (target.profile.movementType === 'air' && !definition.targetMask.air) continue;
             if (target.profile.movementType === 'ground' && !definition.targetMask.ground) continue;
-            if (Math.hypot(target.x - impactX, target.y - impactY) > wave.radius + target.profile.collisionRadius) continue;
+            const isHit = definition.key === 'dragon_blade' && definition.travelingProjectile
+                ? this.isInsideDragonBladePath(
+                    unit,
+                    target,
+                    impactX,
+                    impactY,
+                    definition.travelingProjectile.collisionRadius,
+                )
+                : Math.hypot(target.x - impactX, target.y - impactY) <= wave.radius + target.profile.collisionRadius;
+            if (!isHit) continue;
             this.damageTarget(target, wave.damage, unit.team);
+            if (
+                target.hp > 0
+                && wave.knockupHeight
+                && wave.knockupDurationMs
+            ) {
+                target.pendingAttack = null;
+                target.targetId = null;
+                target.towerTargetCommitted = false;
+                target.firstHitReadyAtMs = 0;
+                target.stunnedUntilMs = Math.max(
+                    target.stunnedUntilMs,
+                    this.elapsedMs + wave.knockupDurationMs,
+                );
+                target.knockupStartedAtMs = this.elapsedMs;
+                target.knockupUntilMs = this.elapsedMs + wave.knockupDurationMs;
+                target.knockupHeight = wave.knockupHeight;
+                target.state = 'stunned';
+                target.jumpEndsAtMs = 0;
+            }
+            if (definition.key === 'dragon_blade' && target.hp > 0 && definition.travelingProjectile) {
+                target.pendingAttack = null;
+                target.targetId = null;
+                target.towerTargetCommitted = false;
+                target.firstHitReadyAtMs = 0;
+                target.stunnedUntilMs = Math.max(
+                    target.stunnedUntilMs,
+                    this.elapsedMs + definition.travelingProjectile.knockbackDurationMs,
+                );
+                this.offsetUnit(
+                    target,
+                    knockbackX * definition.travelingProjectile.knockbackDistance,
+                    knockbackY * definition.travelingProjectile.knockbackDistance,
+                );
+            }
         }
         if (!definition.targetMask.towers) return;
-        const towerDamage = Math.max(1, Math.round(wave.damage * wave.towerDamageMultiplier));
+        const towerDamage = Math.round(wave.damage * wave.towerDamageMultiplier);
         for (const tower of this.towers) {
             if (tower.team === unit.team || !tower.active || tower.hp <= 0) continue;
-            if (Math.hypot(tower.x - impactX, tower.y - impactY) > wave.radius + tower.collisionRadius) continue;
-            this.damageTarget(tower, towerDamage, unit.team);
+            const isHit = definition.key === 'dragon_blade' && definition.travelingProjectile
+                ? this.isInsideDragonBladePath(
+                    unit,
+                    tower,
+                    impactX,
+                    impactY,
+                    definition.travelingProjectile.collisionRadius,
+                )
+                : Math.hypot(tower.x - impactX, tower.y - impactY) <= wave.radius + tower.collisionRadius;
+            if (!isHit) continue;
+            if (towerDamage > 0) this.damageTarget(tower, towerDamage, unit.team);
+            if (definition.persistentZone?.root) {
+                tower.disabledUntilMs = Math.max(
+                    tower.disabledUntilMs,
+                    this.elapsedMs + definition.persistentZone.durationMs,
+                );
+            }
         }
+    }
+
+    private updateKnockupElevation(unit: BattleUnit): void {
+        if (unit.knockupUntilMs <= this.elapsedMs || unit.knockupUntilMs <= unit.knockupStartedAtMs) {
+            if (unit.knockupHeight > 0) {
+                unit.elevation = 0;
+                unit.knockupStartedAtMs = 0;
+                unit.knockupUntilMs = 0;
+                unit.knockupHeight = 0;
+            }
+            return;
+        }
+        const duration = unit.knockupUntilMs - unit.knockupStartedAtMs;
+        const progress = clamp((this.elapsedMs - unit.knockupStartedAtMs) / Math.max(1, duration), 0, 1);
+        unit.elevation = Math.sin(Math.PI * progress) * unit.knockupHeight;
+    }
+
+    private isInsideDragonBladePath(
+        caster: BattleUnit,
+        target: BattleTarget,
+        destinationX: number,
+        destinationY: number,
+        projectileRadius: number,
+    ): boolean {
+        const startX = caster.activeSkillStartX;
+        const startY = caster.activeSkillStartY;
+        const dx = destinationX - startX;
+        const dy = destinationY - startY;
+        const lengthSquared = Math.max(0.001, dx * dx + dy * dy);
+        const projection = clamp(((target.x - startX) * dx + (target.y - startY) * dy) / lengthSquared, 0, 1);
+        const projectedX = startX + dx * projection;
+        const projectedY = startY + dy * projection;
+        return Math.hypot(target.x - projectedX, target.y - projectedY)
+            <= projectileRadius + collisionRadius(target);
     }
 
     private createActiveSkillZone(
@@ -721,6 +924,14 @@ export default class AuthoritativeBattleRoom {
             tickIntervalMs: persistent.tickIntervalMs,
             damagePerTick: persistent.damagePerTick,
             root: persistent.root,
+            casterId: unit.id,
+            nextFollowUpAtMs: definition.sustainedFollowUp
+                ? this.elapsedMs + definition.sustainedFollowUp.initialDelayMs
+                : Number.POSITIVE_INFINITY,
+            followUpIntervalMs: definition.sustainedFollowUp?.intervalMs ?? 0,
+            followUpDamage: definition.sustainedFollowUp?.damagePerShot ?? 0,
+            affectsTowers: definition.targetMask.towers,
+            towerDamageMultiplier: definition.towerDamageMultiplier,
         });
     }
 
@@ -738,16 +949,48 @@ export default class AuthoritativeBattleRoom {
                 && target.profile.movementType === 'ground'
                 && Math.hypot(target.x - zone.x, target.y - zone.y) <= zone.radius + target.profile.collisionRadius
             ));
+            const towers = zone.affectsTowers
+                ? this.towers.filter((tower) => (
+                    tower.active
+                    && tower.hp > 0
+                    && tower.team !== zone.team
+                    && Math.hypot(tower.x - zone.x, tower.y - zone.y) <= zone.radius + tower.collisionRadius
+                ))
+                : [];
             if (zone.root) {
                 const rootRefreshMs = Math.max(TICK_MS * 3, 120);
                 for (const target of targets) {
                     target.stunnedUntilMs = Math.max(target.stunnedUntilMs, this.elapsedMs + rootRefreshMs);
                     target.pendingAttack = null;
                 }
+                for (const tower of towers) {
+                    tower.disabledUntilMs = Math.max(tower.disabledUntilMs, this.elapsedMs + rootRefreshMs);
+                }
             }
             while (this.elapsedMs >= zone.nextTickAtMs && zone.nextTickAtMs < zone.expiresAtMs) {
                 for (const target of targets) this.damageTarget(target, zone.damagePerTick, zone.team);
+                const towerTickDamage = Math.round(zone.damagePerTick * zone.towerDamageMultiplier);
+                if (towerTickDamage > 0) {
+                    for (const tower of towers) this.damageTarget(tower, towerTickDamage, zone.team);
+                }
                 zone.nextTickAtMs += zone.tickIntervalMs;
+            }
+            while (
+                zone.followUpIntervalMs > 0
+                && zone.followUpDamage > 0
+                && this.elapsedMs >= zone.nextFollowUpAtMs
+                && zone.nextFollowUpAtMs < zone.expiresAtMs
+            ) {
+                const caster = this.units.find((unit) => unit.id === zone.casterId && unit.hp > 0);
+                const target = caster
+                    ? [...targets].sort((left, right) => (
+                        Math.hypot(left.x - caster.x, left.y - caster.y)
+                        - Math.hypot(right.x - caster.x, right.y - caster.y)
+                        || left.id.localeCompare(right.id)
+                    ))[0]
+                    : undefined;
+                if (target) this.damageTarget(target, zone.followUpDamage, zone.team);
+                zone.nextFollowUpAtMs += zone.followUpIntervalMs;
             }
         }
     }
@@ -793,8 +1036,27 @@ export default class AuthoritativeBattleRoom {
             if (!target || !isAlive(target)) continue;
             if (pending.kind === 'melee') {
                 if (!this.isInAttackRange(unit, target, true)) continue;
+                const impactX = target.x;
+                const impactY = target.y;
                 this.damageTarget(target, unit.profile.damage, unit.team);
+                if (unit.profile.meleeSplashRadius > 0) {
+                    for (const secondary of this.units) {
+                        if (
+                            secondary === target
+                            || secondary === unit
+                            || secondary.team === unit.team
+                            || secondary.hp <= 0
+                            || secondary.profile.movementType === 'air'
+                        ) continue;
+                        if (
+                            Math.hypot(secondary.x - impactX, secondary.y - impactY)
+                            > unit.profile.meleeSplashRadius + secondary.profile.collisionRadius
+                        ) continue;
+                        this.damageTarget(secondary, unit.profile.damage, unit.team);
+                    }
+                }
                 unit.hitSerial += 1;
+                unit.hitTick = this.tick;
             } else if (unit.profile.projectile) {
                 this.launchProjectile(unit, target);
                 if (unit.profile.recoilDistance > 0) this.applyRecoil(unit, target, unit.profile.recoilDistance);
@@ -804,6 +1066,7 @@ export default class AuthoritativeBattleRoom {
 
     private beginAttack(unit: BattleUnit, target: BattleTarget): void {
         unit.attackSerial += 1;
+        unit.attackTick = this.tick;
         unit.nextAttackAtMs = this.elapsedMs + unit.profile.attackIntervalMs;
         unit.pendingAttack = {
             targetId: target.id,
@@ -829,7 +1092,10 @@ export default class AuthoritativeBattleRoom {
                 if (projectile.splashRadius > 0) this.applySplashDamage(target.x, target.y, projectile);
                 else this.damageTarget(target, projectile.damage, projectile.team);
                 const attacker = this.units.find((unit) => unit.id === projectile.attackerId);
-                if (attacker) attacker.hitSerial += 1;
+                if (attacker) {
+                    attacker.hitSerial += 1;
+                    attacker.hitTick = this.tick;
+                }
                 this.projectiles.splice(index, 1);
                 continue;
             }
@@ -867,7 +1133,7 @@ export default class AuthoritativeBattleRoom {
 
     private updateTowers(): void {
         for (const tower of this.towers) {
-            if (!tower.active || tower.hp <= 0 || this.elapsedMs < tower.nextAttackAtMs) continue;
+            if (!tower.active || tower.hp <= 0 || this.elapsedMs < tower.nextAttackAtMs || this.elapsedMs < tower.disabledUntilMs) continue;
             const target = this.units
                 .filter((unit) => unit.team !== tower.team && unit.hp > 0 && unit.state !== 'spawning')
                 .map((unit) => ({ unit, distance: edgeDistance(tower, unit) }))
@@ -880,18 +1146,57 @@ export default class AuthoritativeBattleRoom {
     }
 
     private resolveUnitTarget(unit: BattleUnit): BattleTarget | null {
-        const locked = this.findTargetById(unit.targetId);
-        if (locked && isAlive(locked)) {
-            if (!isTower(locked) && unit.profile.canTargetUnits && this.canTargetMovementType(unit, locked)) return locked;
-            if (isTower(locked) && unit.profile.canTargetTowers && unit.towerTargetCommitted) return locked;
+        if (unit.ignoredTargetId && this.elapsedMs >= unit.ignoreTargetUntilMs) {
+            unit.ignoredTargetId = null;
+            unit.ignoreTargetUntilMs = 0;
         }
+        const lockedCandidate = this.findTargetById(unit.targetId);
+        const locked = lockedCandidate?.id === unit.ignoredTargetId ? null : lockedCandidate;
         if (this.elapsedMs < unit.acquisitionReadyAtMs) return locked && isAlive(locked) ? locked : this.findTowerFallback(unit);
 
-        if (unit.profile.targetPolicy !== 'building-only' && unit.profile.canTargetUnits) {
-            const enemy = this.findNearestVisibleEnemyUnit(unit);
-            if (enemy) return enemy;
-        }
-        return unit.profile.canTargetTowers ? this.findTowerFallback(unit) : null;
+        const makeView = (target: BattleTarget): SharedTargetView<BattleTarget> => ({
+            source: target,
+            stableId: target.id,
+            x: target.x,
+            y: target.y,
+            team: target.team,
+            alive: isAlive(target) && (isTower(target) || target.state !== 'spawning'),
+            isTower: isTower(target),
+            isKingTower: isTower(target) && target.type === 'king',
+            towerActive: isTower(target) ? target.active : true,
+            movementType: isTower(target) ? 'ground' : target.profile.movementType,
+            lane: isTower(target) ? laneFromX(target.x) : target.lane,
+            arenaSide: arenaSide(target.y),
+            bridgeCorridor: bridgeLaneAt(target.x, target.y),
+            routeDistance: this.estimateRouteDistance(unit, target),
+        });
+
+        return resolveSharedCombatTarget(
+            makeView(unit),
+            locked ? makeView(locked) : null,
+            [...this.units, ...this.towers]
+                .filter(candidate => candidate.id !== unit.ignoredTargetId)
+                .map(makeView),
+            {
+                policy: unit.profile.targetPolicy,
+                mask: {
+                    units: unit.profile.canTargetUnits,
+                    towers: unit.profile.canTargetTowers,
+                    ground: unit.profile.canTargetGround,
+                    air: unit.profile.canTargetAir,
+                },
+                sightRange: unit.profile.sightRange,
+                crossLaneCloseRange: unit.profile.crossLaneCloseRange,
+                sameLanePenalty: unit.profile.sameLanePenalty,
+                bridgeCrossLaneAllowed: unit.profile.bridgeCrossLaneAllowed,
+                bridgeEngagementRange: unit.profile.bridgeEngagementRange,
+                centerX: 180,
+                centerPullHalfWidth: unit.profile.centerPullHalfWidth,
+                rearAggroRange: unit.profile.rearAggroRange,
+                backtrackTolerance: unit.profile.backtrackTolerance,
+                preserveCurrentTower: unit.towerTargetCommitted,
+            },
+        ).target;
     }
 
     private assignTarget(unit: BattleUnit, target: BattleTarget | null): void {
@@ -901,29 +1206,53 @@ export default class AuthoritativeBattleRoom {
         unit.firstHitReadyAtMs = 0;
         unit.pendingAttack = null;
         unit.towerTargetCommitted = false;
+        unit.progressCheckAtMs = this.elapsedMs + 650;
+        unit.progressX = unit.x;
+        unit.progressY = unit.y;
+        unit.stalledChecks = 0;
         if (target && isTower(target) && target.type === 'princess') unit.lane = laneFromX(target.x);
     }
 
-    private findNearestVisibleEnemyUnit(unit: BattleUnit): BattleUnit | null {
-        const actorSide = arenaSide(unit.y);
-        return this.units
-            .filter((candidate) => candidate !== unit && candidate.team !== unit.team && candidate.hp > 0 && candidate.state !== 'spawning')
-            .filter((candidate) => this.canTargetMovementType(unit, candidate))
-            .map((candidate) => {
-                const directDistance = Math.hypot(candidate.x - unit.x, candidate.y - unit.y);
-                const candidateSide = arenaSide(candidate.y);
-                const sameSide = actorSide === 0 || candidateSide === 0 || actorSide === candidateSide;
-                const sameBridge = bridgeLaneAt(unit.x, unit.y) !== null && bridgeLaneAt(unit.x, unit.y) === bridgeLaneAt(candidate.x, candidate.y);
-                const visible = directDistance <= unit.profile.sightRange && (sameSide || (sameBridge && directDistance <= 92));
-                return { candidate, directDistance, visible };
-            })
-            .filter((entry) => entry.visible)
-            .sort((a, b) => a.directDistance - b.directDistance || a.candidate.id.localeCompare(b.candidate.id))[0]?.candidate ?? null;
+    private resetRouteProgress(unit: BattleUnit): void {
+        unit.progressCheckAtMs = this.elapsedMs + 650;
+        unit.progressX = unit.x;
+        unit.progressY = unit.y;
+        unit.stalledChecks = 0;
     }
 
-    private canTargetMovementType(unit: BattleUnit, candidate: BattleUnit): boolean {
-        if (candidate.profile.movementType === 'ground') return unit.profile.canTargetGround;
-        return unit.profile.canTargetAir;
+    private updateRouteProgress(unit: BattleUnit, target: BattleTarget): void {
+        if (this.elapsedMs < unit.progressCheckAtMs) return;
+        const progressed = Math.hypot(unit.x - unit.progressX, unit.y - unit.progressY);
+        unit.progressCheckAtMs = this.elapsedMs + 650;
+        unit.progressX = unit.x;
+        unit.progressY = unit.y;
+        if (progressed >= 3.5 || unit.state !== 'moving') {
+            unit.stalledChecks = 0;
+            return;
+        }
+
+        unit.stalledChecks += 1;
+        if (unit.stalledChecks < 4 || isTower(target)) return;
+        unit.ignoredTargetId = target.id;
+        unit.ignoreTargetUntilMs = this.elapsedMs + 900;
+        unit.acquisitionReadyAtMs = this.elapsedMs + 120;
+        this.assignTarget(unit, null);
+        unit.state = 'moving';
+    }
+
+    private estimateRouteDistance(unit: BattleUnit, target: BattleTarget): number {
+        const direct = Math.hypot(target.x - unit.x, target.y - unit.y);
+        if (unit.profile.movementRoute !== 'ground-bridge') return direct;
+        const actorSide = arenaSide(unit.y);
+        const targetSide = arenaSide(target.y);
+        if (actorSide === 0 || targetSide === 0 || actorSide === targetSide) return direct;
+
+        const bridgeX = unit.lane === 'left' ? BRIDGE_X[0] : BRIDGE_X[1];
+        const entryY = unit.team === 'blue' ? RIVER_BOTTOM + 18 : RIVER_TOP - 18;
+        const exitY = unit.team === 'blue' ? RIVER_TOP - 24 : RIVER_BOTTOM + 24;
+        return Math.hypot(bridgeX - unit.x, entryY - unit.y)
+            + Math.abs(exitY - entryY)
+            + Math.hypot(target.x - bridgeX, target.y - exitY);
     }
 
     private findTowerFallback(unit: BattleUnit): BattleTower | null {
@@ -977,15 +1306,16 @@ export default class AuthoritativeBattleRoom {
         const jump = unit.profile.jump;
         if (!jump || this.elapsedMs < unit.jumpCooldownUntilMs) return false;
         const crossing = (unit.y > RIVER_BOTTOM && target.y < RIVER_TOP) || (unit.y < RIVER_TOP && target.y > RIVER_BOTTOM);
-        const nearTakeoff = unit.team === 'blue' ? unit.y <= RIVER_BOTTOM + 44 : unit.y >= RIVER_TOP - 44;
+        const nearTakeoff = unit.team === 'blue' ? unit.y <= RIVER_BOTTOM + 56 : unit.y >= RIVER_TOP - 56;
         if (!crossing || !nearTakeoff) return false;
         const landingY = unit.team === 'blue' ? RIVER_TOP - jump.landingOffset : RIVER_BOTTOM + jump.landingOffset;
         const landingX = clamp(unit.x + clamp((target.x - unit.x) * 0.18, -24, 24), MIN_X, MAX_X);
         const distance = Math.hypot(landingX - unit.x, landingY - unit.y);
         unit.state = 'jumping';
         unit.jumpSerial += 1;
+        unit.jumpTick = this.tick;
         unit.jumpStartedAtMs = this.elapsedMs;
-        unit.jumpEndsAtMs = this.elapsedMs + Math.max(260, (distance / jump.speed) * 1000);
+        unit.jumpEndsAtMs = this.elapsedMs + Math.max(560, (distance / jump.speed) * 1000);
         unit.jumpStartX = unit.x;
         unit.jumpStartY = unit.y;
         unit.jumpTargetX = landingX;
@@ -1135,10 +1465,12 @@ export default class AuthoritativeBattleRoom {
     }
 
     private removeDeadUnits(): void {
+        let removedUnit = false;
         for (let index = this.units.length - 1; index >= 0; index -= 1) {
             if (this.units[index].hp > 0) continue;
             const deadId = this.units[index].id;
             this.units.splice(index, 1);
+            removedUnit = true;
             for (const unit of this.units) {
                 if (unit.targetId === deadId) this.assignTarget(unit, null);
                 if (unit.pendingAttack?.targetId === deadId) unit.pendingAttack = null;
@@ -1147,6 +1479,9 @@ export default class AuthoritativeBattleRoom {
                 const projectile = this.projectiles[projectileIndex];
                 if (projectile.targetId === deadId || projectile.attackerId === deadId) this.projectiles.splice(projectileIndex, 1);
             }
+        }
+        if (removedUnit) {
+            for (const player of this.players.values()) this.refillAvailableHandSlots(player);
         }
     }
 

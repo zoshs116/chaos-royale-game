@@ -41,11 +41,14 @@ function resolve(
         lane: actor.lane,
         policy,
         mask,
-        sightRange: 240,
-        crossLaneCloseRange: 60,
-        sameLanePenalty: 140,
+        sightRange: 110,
+        crossLaneCloseRange: 44,
+        sameLanePenalty: 20,
         bridgeCrossLaneAllowed: true,
-        bridgeEngagementRange: 92,
+        bridgeEngagementRange: 84,
+        centerPullHalfWidth: 54,
+        rearAggroRange: 44,
+        backtrackTolerance: 18,
         preserveCurrentTower,
         getRouteDistance: (target) => Math.hypot(target.x - actor.x, target.y - actor.y),
         getBridgeCorridor: () => null,
@@ -87,11 +90,26 @@ export function runCombatInvariantChecks(): string[] {
     }
 
     const sameSideCrossLaneEnemy = fakeTarget(23, 'red', 270, 470, 'right');
-    if (resolve(actor, fallbackTower, [actor, sameSideCrossLaneEnemy, fallbackTower], anyGroundMask, 'any-nearest') !== sameSideCrossLaneEnemy) {
-        failures.push('same-side enemies inside sight range must not be rejected by navigation lane');
+    if (resolve(actor, fallbackTower, [actor, sameSideCrossLaneEnemy, fallbackTower], anyGroundMask, 'any-nearest') !== fallbackTower) {
+        failures.push('a distant enemy in the opposite lane must not pull a unit across the arena');
     }
 
-    const outOfSightEnemy = fakeTarget(24, 'red', 350, 500, 'right');
+    const centerPullEnemy = fakeTarget(24, 'red', 142, 470, 'right');
+    if (resolve(actor, fallbackTower, [actor, centerPullEnemy, fallbackTower], anyGroundMask, 'any-nearest') !== centerPullEnemy) {
+        failures.push('a nearby enemy near the arena center must still be able to pull a unit');
+    }
+
+    const farRearEnemy = fakeTarget(25, 'red', 80, 560, 'left');
+    if (resolve(actor, fallbackTower, [actor, farRearEnemy, fallbackTower], anyGroundMask, 'any-nearest') !== fallbackTower) {
+        failures.push('a new enemy far behind the unit must not cause a long backtrack');
+    }
+
+    const closeRearEnemy = fakeTarget(26, 'red', 80, 532, 'left');
+    if (resolve(actor, fallbackTower, [actor, closeRearEnemy, fallbackTower], anyGroundMask, 'any-nearest') !== closeRearEnemy) {
+        failures.push('a very close enemy behind the unit must still be targetable');
+    }
+
+    const outOfSightEnemy = fakeTarget(27, 'red', 350, 500, 'right');
     if (resolve(actor, fallbackTower, [actor, outOfSightEnemy, fallbackTower], anyGroundMask, 'any-nearest') !== fallbackTower) {
         failures.push('enemies outside sight range must not preempt the tower fallback');
     }

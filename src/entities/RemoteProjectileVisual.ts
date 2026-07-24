@@ -4,6 +4,7 @@ import { CONSTANTS } from '../systems/Constants';
 export default class RemoteProjectileVisual extends Phaser.GameObjects.Container {
     private targetX: number | null = null;
     private targetY: number | null = null;
+    private timelineDriven = false;
 
     constructor(scene: Phaser.Scene, projectileKey: string, team: 'blue' | 'red') {
         super(scene, 0, 0);
@@ -30,8 +31,9 @@ export default class RemoteProjectileVisual extends Phaser.GameObjects.Container
         }
     }
 
-    public applyState(x: number, y: number, directionX: number, directionY: number) {
-        if (this.targetX === null || this.targetY === null || Phaser.Math.Distance.Between(this.x, this.y, x, y) > 90) {
+    public applyState(x: number, y: number, directionX: number, directionY: number, timelineDriven = false) {
+        this.timelineDriven = timelineDriven;
+        if (timelineDriven || this.targetX === null || this.targetY === null || Phaser.Math.Distance.Between(this.x, this.y, x, y) > 90) {
             this.setPosition(x, y);
         }
         this.targetX = x;
@@ -41,6 +43,7 @@ export default class RemoteProjectileVisual extends Phaser.GameObjects.Container
 
     public updateRemoteVisual(delta: number) {
         if (this.targetX === null || this.targetY === null) return;
+        if (this.timelineDriven) return;
         const alpha = 1 - Math.exp(-Math.max(0, delta) / 42);
         this.x = Phaser.Math.Linear(this.x, this.targetX, alpha);
         this.y = Phaser.Math.Linear(this.y, this.targetY, alpha);

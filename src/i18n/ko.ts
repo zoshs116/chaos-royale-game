@@ -123,10 +123,16 @@ export const ko = {
 } as const;
 
 export const UNIT_NAME_KO: Record<string, string> = {
+    duckxel_sword_man: '기사',
+    spear_goblin: '창고블린',
+    skeleton_swordsman: '해골 군단',
+    royal_giant: '로얄 자이언트',
+    hog_rider: '호그라이더',
+    duckxel_barbarian: '바바리안',
     stone_cold: '스톤 콜드',
     muradin: '무라딘',
     duckxel_muradin: '무라딘',
-    duckxel_web_acrobat: '레드 마스크',
+    duckxel_web_acrobat: '스파이더맨',
     seoultech_student: '서울과기대생',
     raiden: '레이든',
     viper: '바이퍼',

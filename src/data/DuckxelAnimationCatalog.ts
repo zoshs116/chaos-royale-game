@@ -121,6 +121,19 @@ export const DUCKXEL_ASSET_PROFILES: Record<string, DuckxelAssetProfile> = {
         walkFps: fps(10, 5, 10, 10),
         attackFrameCounts: { 'north-east': 4, 'north-west': 4, 'south-east': 4, 'south-west': 4 },
         attackFps: fps(11, 11, 11, 11),
+        skill: {
+            label: '황금 용의 일격',
+            folder: 'barbarian_skill',
+            textureSegment: '_skill',
+            loop: false,
+            replayDelayMs: 1200,
+            directions: {
+                'north-east': { frameCount: 6, fps: 10 },
+                'north-west': { frameCount: 6, fps: 10 },
+                'south-east': { frameCount: 6, fps: 10 },
+                'south-west': { frameCount: 6, fps: 10 },
+            },
+        },
     }),
     royal_giant: createProfile({
         unitKey: 'royal_giant',

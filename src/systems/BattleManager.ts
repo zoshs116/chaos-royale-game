@@ -18,6 +18,15 @@ export default class BattleManager {
 
     private onDoubleElixir: (() => void) | null = null;
     private onGameEnd: ((winner: 'blue' | 'red' | 'draw') => void) | null = null;
+    private destroyed = false;
+
+    private readonly onTowerDestroyedEvent = (data: { team: string, isKing: boolean }) => {
+        this.onTowerDestroyed(data);
+    };
+
+    private readonly onKingTowerActivatedEvent = (data: { team: string }) => {
+        console.log(`${data.team} King Tower activated!`);
+    };
 
     constructor(scene: Phaser.Scene, entityManager: EntityManager) {
         this.scene = scene;
@@ -25,14 +34,20 @@ export default class BattleManager {
         this.battleTime = CONSTANTS.GAMEPLAY.BATTLE_TIME;
 
         // Listen for tower destruction
-        scene.events.on('towerDestroyed', (data: { team: string, isKing: boolean }) => {
-            this.onTowerDestroyed(data);
-        });
+        scene.events.on('towerDestroyed', this.onTowerDestroyedEvent);
 
         // Listen for king tower activation
-        scene.events.on('kingTowerActivated', (data: { team: string }) => {
-            console.log(`${data.team} King Tower activated!`);
-        });
+        scene.events.on('kingTowerActivated', this.onKingTowerActivatedEvent);
+    }
+
+    public destroy() {
+        if (this.destroyed) return;
+        this.destroyed = true;
+
+        this.scene.events.off('towerDestroyed', this.onTowerDestroyedEvent);
+        this.scene.events.off('kingTowerActivated', this.onKingTowerActivatedEvent);
+        this.onDoubleElixir = null;
+        this.onGameEnd = null;
     }
 
     setCallbacks(onDoubleElixir: () => void, onGameEnd: (winner: 'blue' | 'red' | 'draw') => void) {

@@ -1,7 +1,6 @@
 import Phaser from 'phaser';
 import Unit, { UnitState } from '../entities/Unit';
 import type { SkillParams, UnitRole } from '../data/UnitData';
-import { ROLE_MATCHUP, MATCHUP_BONUS, MATCHUP_PENALTY } from '../data/UnitData';
 import { CONSTANTS } from './Constants';
 import { GAME_FONT } from '../i18n/ko';
 
@@ -35,17 +34,8 @@ export default class SkillSystem {
         this.scene = scene;
     }
 
-    // ===== MATCHUP DAMAGE =====
-    calculateDamage(baseDamage: number, attackerRole: UnitRole, defenderRole: UnitRole): number {
-        const matchup = ROLE_MATCHUP[attackerRole];
-        if (!matchup) return baseDamage;
-
-        if (matchup.strong.includes(defenderRole)) {
-            return Math.floor(baseDamage * MATCHUP_BONUS);
-        }
-        if (matchup.weak.includes(defenderRole)) {
-            return Math.floor(baseDamage * MATCHUP_PENALTY);
-        }
+    // Roles remain metadata for behavior/UI; they no longer alter combat damage.
+    calculateDamage(baseDamage: number, _attackerRole: UnitRole, _defenderRole: UnitRole): number {
         return baseDamage;
     }
 
@@ -413,8 +403,6 @@ export default class SkillSystem {
 
     // ===== DEBUFF PROCESSING =====
     processDebuffs(unit: Unit, delta: number) {
-        if (unit.isTower) return;
-
         let isStunned = false;
         let slowFactor = 1;
         const sprite = unit.getSprite();

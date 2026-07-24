@@ -9,6 +9,10 @@ import { DUCKXEL_ASSET_PROFILES, resolveDuckxelDirectionAnimation } from '../dat
 import type { DuckxelAssetProfile, DuckxelDirection } from '../data/DuckxelAnimationCatalog';
 import { getActiveSkillDefinition } from '../data/ActiveSkillData';
 import type { ActiveSkillDefinition, ActiveSkillPhase, ActiveSkillRuntimeSnapshot } from '../data/ActiveSkillData';
+import {
+    BARBARIAN_DRAGON_SKILL_ASSETS,
+    BARBARIAN_DRAGON_SWORD_TIP_ANCHORS,
+} from '../data/BarbarianDragonSkillData';
 
 export const UnitState = {
     SPAWN: 0,
@@ -48,8 +52,10 @@ type BattleLane = 'left' | 'right';
 
 const DEFAULT_ACQUISITION_DELAY = 90;
 const DEFAULT_FIRST_HIT_DELAY = 180;
+const TARGET_STEERING_BLEND_MS = 180;
 
 export default class Unit extends Phaser.GameObjects.Container {
+    private static readonly visibleTextureTopCache = new Map<string, number | null>();
     public id: string;
     public state: UnitStateType;
     public stats: UnitStats;
@@ -81,6 +87,12 @@ export default class Unit extends Phaser.GameObjects.Container {
     private activeSkillTimers: Phaser.Time.TimerEvent[] = [];
     private activeSkillMotionTween: Phaser.Tweens.Tween | null = null;
     private activeSkillAirborne: boolean = false;
+    private followUpSkillAnimationSerial: number = 0;
+    private followUpSkillAnimationPlaying: boolean = false;
+    private knockupTween: Phaser.Tweens.Tween | null = null;
+    private knockupSerial: number = 0;
+    private activeSkillVisualObjects: Phaser.GameObjects.GameObject[] = [];
+    private activeSkillReleaseOrigin: { x: number; y: number } | null = null;
 
     // Visual
     protected sprite: Phaser.GameObjects.Image | null = null;
@@ -91,6 +103,7 @@ export default class Unit extends Phaser.GameObjects.Container {
     private attackGlow: Phaser.GameObjects.Ellipse;
     private walkPhase: number = Math.random() * Math.PI * 2;
     private readonly spriteBaseScale: number;
+    private configuredHpBarY: number = -17;
     private readonly isDuckxelTestUnit: boolean = false;
     private readonly duckxelAssetProfile: DuckxelAssetProfile | null = null;
     private readonly duckxelBattleProfile: DuckxelBattleProfile | null = null;
@@ -103,10 +116,16 @@ export default class Unit extends Phaser.GameObjects.Container {
     private remoteElevation: number = 0;
     private remoteTargetX: number | null = null;
     private remoteTargetY: number | null = null;
+    private remoteTimelineDriven = false;
+    private remoteVisualInitialized = false;
+    private remoteHitSerial = 0;
     private remoteVelocityX: number = 0;
     private remoteVelocityY: number = 0;
     private isRiverJumping: boolean = false;
+    private hogJumpStart: { x: number; y: number } | null = null;
     private hogJumpTarget: { x: number; y: number } | null = null;
+    private hogJumpElapsed: number = 0;
+    private hogJumpDuration: number = 0;
     private hogJumpCooldown: number = 0;
 
     // Combat
@@ -116,12 +135,15 @@ export default class Unit extends Phaser.GameObjects.Container {
     private retargetTimer: number = 0;
     private targetLockTimer: number = 0;
     private acquisitionTimer: number = 0;
+    private ignoredTarget: Unit | null = null;
+    private ignoredTargetTimer: number = 0;
     private firstHitTimer: number = 0;
     private firstHitPending: boolean = false;
     private firstHitDelayStarted: boolean = false;
     private targetAnchor: { x: number; y: number } | null = null;
     private contactScanRequested: boolean = false;
     private towerTargetCommitted: boolean = false;
+    private targetSteeringBlendRemainingMs: number = 0;
     private attackSequenceId: number = 0;
     private pendingGameplayAttack: {
         kind: 'melee' | 'projectile';
@@ -145,6 +167,7 @@ export default class Unit extends Phaser.GameObjects.Container {
     private routeProgressY: number = 0;
     private routeStallCount: number = 0;
     private simulationTimeMs: number = 0;
+    private forcedDisplacementTween: Phaser.Tweens.Tween | null = null;
 
     constructor(scene: Phaser.Scene, x: number, y: number, unitKey: string, team: 'blue' | 'red', stats: UnitStats) {
         super(scene, x, y);
@@ -205,7 +228,8 @@ export default class Unit extends Phaser.GameObjects.Container {
         const hpProfile = this.duckxelBattleProfile?.hpBar;
         const hpBarWidth = hpProfile?.width ?? (unitKey === 'royal_giant' ? 32 : unitKey === 'skeleton_swordsman' ? 18 : unitKey === 'spear_goblin' ? 20 : 24);
         const hpBarFillWidth = Math.max(12, hpBarWidth - 4);
-        const hpBarY = hpProfile?.y ?? (unitKey === 'royal_giant' ? -28 : unitKey === 'skeleton_swordsman' ? -13 : -17);
+        this.configuredHpBarY = hpProfile?.y ?? (unitKey === 'royal_giant' ? -28 : unitKey === 'skeleton_swordsman' ? -13 : -17);
+        const hpBarY = this.configuredHpBarY;
         this.hpBarBg = scene.add.rectangle(-hpBarWidth / 2, hpBarY, hpBarWidth, 4, 0x101521, 0.88);
         this.hpBarBg.setOrigin(0, 0.5);
         this.hpBarBg.setStrokeStyle(1, teamBorderColor, 0.62);
@@ -220,7 +244,14 @@ export default class Unit extends Phaser.GameObjects.Container {
         this.hpBarHighlight.setDepth(CONSTANTS.DEPTH.HP_BAR + 1);
         this.hpBarFill.setDepth(CONSTANTS.DEPTH.HP_BAR + 2);
 
-        this.add([this.shadow, this.attackGlow, sprite, this.hpBarBg, this.hpBarHighlight, this.hpBarFill]);
+        this.add([
+            this.shadow,
+            this.attackGlow,
+            sprite,
+            this.hpBarBg,
+            this.hpBarHighlight,
+            this.hpBarFill,
+        ]);
 
         // Physics
         scene.physics.world.enable(this);
@@ -578,7 +609,7 @@ export default class Unit extends Phaser.GameObjects.Container {
     }
 
     public getCollisionRadius(): number {
-        if (!this.active || this.state === UnitState.DIE || this.stats.movementType === 'air' || this.activeSkillAirborne) return 0;
+        if (!this.active || this.state === UnitState.DIE || this.stats.movementType === 'air' || this.activeSkillAirborne || this.isRiverJumping) return 0;
         if (this.isTower) return this.isKingTower ? 28 : 22;
         if (this.duckxelBattleProfile) return this.duckxelBattleProfile.collisionRadius;
         if (this.isDuckxelTestUnit) return 13;
@@ -591,6 +622,11 @@ export default class Unit extends Phaser.GameObjects.Container {
         if (this.role === 'tank') return 2.4;
         if (this.role === 'swarm') return 0.75;
         return 1.2;
+    }
+
+    public getMeleeSplashRadius(): number {
+        if (this.stats.attackType !== 'melee') return 0;
+        return Math.max(0, this.duckxelBattleProfile?.attack.splashRadius ?? 0);
     }
 
     public applyCollisionOffset(dx: number, dy: number) {
@@ -607,7 +643,7 @@ export default class Unit extends Phaser.GameObjects.Container {
     }
 
     public interruptCombat(reason: 'stun' | 'knockback' | 'forced-displacement') {
-        if (this.isTower || this.state === UnitState.DIE || !this.active) return;
+        if (this.state === UnitState.DIE || !this.active) return;
 
         this.cancelAttackSequence();
         if (reason === 'stun') this.cancelActiveSkillCast();
@@ -656,17 +692,24 @@ export default class Unit extends Phaser.GameObjects.Container {
         delta = 66,
         remote?: {
             attackSerial: number;
+            hitSerial: number;
             jumpSerial: number;
+            attackTick: number;
+            hitTick: number;
+            jumpTick: number;
+            activeSkillCastTick: number;
             directionX: number;
             directionY: number;
             elevation: number;
-        }
+        },
+        timelineDriven = false,
     ) {
         if (!this.active || this.state === UnitState.DIE) return;
         const previousTargetX = this.remoteTargetX ?? this.x;
         const previousTargetY = this.remoteTargetY ?? this.y;
         const distanceToSnapshot = Phaser.Math.Distance.Between(this.x, this.y, x, y);
-        if (this.remoteTargetX === null || this.remoteTargetY === null || distanceToSnapshot > 96) {
+        this.remoteTimelineDriven = timelineDriven;
+        if (timelineDriven || this.remoteTargetX === null || this.remoteTargetY === null || distanceToSnapshot > 96) {
             this.setPosition(x, y);
         }
         this.remoteTargetX = x;
@@ -680,7 +723,11 @@ export default class Unit extends Phaser.GameObjects.Container {
             ? (y - previousTargetY) * scale
             : (remote?.directionY ?? 0) * (remoteState === 'moving' ? this.stats.speed : 0);
         this.remoteElevation = Math.max(0, remote?.elevation ?? 0);
-        if (remote && remote.jumpSerial > this.remoteJumpSerial) {
+        if (remote && !this.remoteVisualInitialized) {
+            this.remoteAttackSerial = remote.attackSerial;
+            this.remoteHitSerial = remote.hitSerial;
+            this.remoteJumpSerial = remote.jumpSerial;
+        } else if (remote && remote.jumpSerial > this.remoteJumpSerial) {
             this.remoteJumpSerial = remote.jumpSerial;
             this.restoreDuckxelIdleFrame();
         }
@@ -688,6 +735,12 @@ export default class Unit extends Phaser.GameObjects.Container {
             this.remoteAttackSerial = remote.attackSerial;
             this.playRemoteAttackAnimation(remote.directionX, remote.directionY);
         }
+        if (remote && this.remoteVisualInitialized && remote.hitSerial > this.remoteHitSerial) {
+            this.remoteHitSerial = remote.hitSerial;
+            const hitColor = this.team === 'blue' ? 0x8fd0ff : 0xff9f87;
+            this.showHitReaction('melee', hitColor);
+        }
+        this.remoteVisualInitialized = true;
         this.state = remoteState === 'moving' || remoteState === 'jumping'
             ? UnitState.MOVE
             : remoteState === 'attacking' ? UnitState.ATTACK
@@ -702,12 +755,121 @@ export default class Unit extends Phaser.GameObjects.Container {
         }
     }
 
+    public applyDirectionalKnockback(
+        directionX: number,
+        directionY: number,
+        distance: number,
+        durationMs: number,
+    ): boolean {
+        if (this.isTower || this.state === UnitState.DIE || !this.active || this.stats.movementType === 'air') return false;
+        const length = Math.hypot(directionX, directionY);
+        if (length < 0.001 || distance <= 0 || durationMs <= 0) return false;
+
+        const unitX = directionX / length;
+        const unitY = directionY / length;
+        let destinationX = this.x;
+        let destinationY = this.y;
+        const steps = Math.max(1, Math.ceil(distance / 3));
+        for (let step = 1; step <= steps; step += 1) {
+            const travel = distance * (step / steps);
+            const candidateX = Phaser.Math.Clamp(this.x + unitX * travel, 18, CONSTANTS.SCREEN_WIDTH - 18);
+            const candidateY = Phaser.Math.Clamp(this.y + unitY * travel, 24, CONSTANTS.ARENA.UI_START - 38);
+            if (this.gameMap?.isWalkable && !this.gameMap.isWalkable(candidateX, candidateY)) break;
+            destinationX = candidateX;
+            destinationY = candidateY;
+        }
+        if (Phaser.Math.Distance.Between(this.x, this.y, destinationX, destinationY) < 1) return false;
+
+        if (this.activeSkillPhase === 'casting') this.cancelActiveSkillCast();
+        this.interruptCombat('knockback');
+        this.forcedDisplacementTween?.stop();
+        this.forcedDisplacementTween = this.scene.tweens.add({
+            targets: this,
+            x: destinationX,
+            y: destinationY,
+            duration: durationMs,
+            ease: 'Cubic.Out',
+            onUpdate: () => {
+                (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0).updateFromGameObject();
+                this.updateSortDepth();
+            },
+            onComplete: () => {
+                this.forcedDisplacementTween = null;
+                if (!this.active || this.state === UnitState.DIE) return;
+                this.state = UnitState.IDLE;
+                this.acquisitionTimer = 0;
+                this.retargetTimer = 0;
+                this.requestCombatScan();
+            },
+        });
+        return true;
+    }
+
+    public applyKnockup(height: number, durationMs: number): boolean {
+        if (
+            this.isTower
+            || this.state === UnitState.DIE
+            || !this.active
+            || this.stats.movementType === 'air'
+            || height <= 0
+            || durationMs <= 0
+        ) return false;
+
+        if (this.activeSkillPhase === 'casting') this.cancelActiveSkillCast();
+        this.interruptCombat('stun');
+        this.addDebuff({ type: 'stun', duration: durationMs });
+
+        const serial = ++this.knockupSerial;
+        const baseSpriteY = -7;
+        const motion = { progress: 0 };
+        this.knockupTween?.stop();
+        this.knockupTween = null;
+        this.activeSkillAirborne = true;
+        if (this.sprite) this.scene.tweens.killTweensOf(this.sprite);
+        this.scene.tweens.killTweensOf(this.shadow);
+
+        this.knockupTween = this.scene.tweens.add({
+            targets: motion,
+            progress: 1,
+            duration: durationMs,
+            ease: 'Linear',
+            onUpdate: () => {
+                if (serial !== this.knockupSerial || !this.active || this.state === UnitState.DIE || !this.sprite) return;
+                const elevation = Math.sin(Math.PI * Phaser.Math.Clamp(motion.progress, 0, 1));
+                this.sprite.y = baseSpriteY - height * elevation;
+                this.shadow.setScale(Phaser.Math.Linear(1, 0.58, elevation));
+                this.shadow.setAlpha(Phaser.Math.Linear(
+                    this.duckxelBattleProfile?.shadow.alpha ?? 0.28,
+                    0.08,
+                    elevation,
+                ));
+                (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+                this.updateSortDepth();
+            },
+            onComplete: () => {
+                if (serial !== this.knockupSerial) return;
+                this.knockupTween = null;
+                this.activeSkillAirborne = false;
+                if (!this.active || this.state === UnitState.DIE) return;
+                if (this.sprite) this.sprite.y = baseSpriteY;
+                this.shadow.setScale(1);
+                this.shadow.setAlpha(this.duckxelBattleProfile?.shadow.alpha ?? 0.28);
+                (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0).updateFromGameObject();
+                this.state = UnitState.IDLE;
+                this.acquisitionTimer = 0;
+                this.retargetTimer = 0;
+                this.requestCombatScan();
+            },
+        });
+        return true;
+    }
+
     public updateRemoteVisual(delta: number) {
         if (!this.active || this.remoteTargetX === null || this.remoteTargetY === null) return;
         const targetX = this.remoteTargetX;
         const targetY = this.remoteTargetY;
         const distance = Phaser.Math.Distance.Between(this.x, this.y, targetX, targetY);
-        if (distance > 0.05) {
+        if (!this.remoteTimelineDriven && distance > 0.05) {
             const alpha = 1 - Math.exp(-Math.max(0, delta) / 72);
             this.x = Phaser.Math.Linear(this.x, targetX, alpha);
             this.y = Phaser.Math.Linear(this.y, targetY, alpha);
@@ -809,7 +971,14 @@ export default class Unit extends Phaser.GameObjects.Container {
             return;
         }
 
-        if (this.updateHogRiverJump()) {
+        if (this.forcedDisplacementTween?.isPlaying()) {
+            (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+            this.updateHpBar();
+            this.updateSortDepth();
+            return;
+        }
+
+        if (this.updateHogRiverJump(delta)) {
             this.updateHpBar();
             this.updateSortDepth();
             this.animateVisual(delta);
@@ -828,6 +997,10 @@ export default class Unit extends Phaser.GameObjects.Container {
         }
         if (this.acquisitionTimer > 0) {
             this.acquisitionTimer -= delta;
+        }
+        if (this.ignoredTargetTimer > 0) {
+            this.ignoredTargetTimer -= delta;
+            if (this.ignoredTargetTimer <= 0) this.ignoredTarget = null;
         }
         if (this.firstHitTimer > 0) {
             this.firstHitTimer -= delta;
@@ -884,7 +1057,7 @@ export default class Unit extends Phaser.GameObjects.Container {
                     (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
                     this.startFirstHitDelayIfNeeded();
                 } else {
-                    this.chase();
+                    this.chase(delta);
                 }
                 break;
 
@@ -985,9 +1158,13 @@ export default class Unit extends Phaser.GameObjects.Container {
     }
 
     public castActiveSkill(onImpact: (unit: Unit, definition: ActiveSkillDefinition, x: number, y: number) => void): boolean {
-        if (!this.activeSkillDefinition || !this.duckxelAssetProfile?.previewActions.skill || !this.sprite) return false;
+        if (!this.activeSkillDefinition) return false;
         const castSerial = this.beginActiveSkillRuntime();
         if (castSerial === null) return false;
+        if (!this.duckxelAssetProfile?.previewActions.skill || !this.sprite) {
+            this.cancelActiveSkillRuntime(castSerial);
+            return false;
+        }
         return this.playActiveSkillSequence(castSerial, onImpact);
     }
 
@@ -996,12 +1173,13 @@ export default class Unit extends Phaser.GameObjects.Container {
         onImpact: (unit: Unit, definition: ActiveSkillDefinition, x: number, y: number) => void,
     ): boolean {
         if (!Number.isSafeInteger(castSerial) || castSerial <= this.remoteActiveSkillSerial) return false;
-        if (!this.activeSkillDefinition || !this.duckxelAssetProfile?.previewActions.skill || !this.sprite
+        if (!this.activeSkillDefinition
             || !this.active || this.state === UnitState.DIE) return false;
         this.remoteActiveSkillSerial = castSerial;
         this.activeSkillCastSerial = castSerial;
-        this.activeSkillPhase = 'casting';
         this.activeSkillCooldownRemainingMs = this.activeSkillDefinition.cooldownMs;
+        if (!this.duckxelAssetProfile?.previewActions.skill || !this.sprite) return false;
+        this.activeSkillPhase = 'casting';
         return this.playActiveSkillSequence(castSerial, onImpact);
     }
 
@@ -1035,6 +1213,18 @@ export default class Unit extends Phaser.GameObjects.Container {
             return false;
         }
 
+        if (definition.key === 'dragon_blade') {
+            return this.playDragonBladeSkillSequence(
+                castSerial,
+                definition,
+                profile,
+                directionAnimation,
+                resolvedSkillAnimation.flipX,
+                targetVector,
+                onImpact,
+            );
+        }
+
         const frameDuration = Math.max(70, Math.round(1000 / Math.max(1, directionAnimation.fps)));
         const impactFrame = Phaser.Math.Clamp(
             definition.impactFrameByDirection[this.duckxelDirection],
@@ -1044,6 +1234,10 @@ export default class Unit extends Phaser.GameObjects.Container {
         const timing = definition.timingByDirection[this.duckxelDirection];
         const impactAtMs = timing?.impactMs ?? impactFrame * frameDuration;
         const totalDurationMs = timing?.totalMs ?? directionAnimation.frameCount * frameDuration;
+        const castLockDurationMs = Math.max(
+            totalDurationMs,
+            impactAtMs + (definition.sustainedFollowUp?.channelDurationMs ?? 0),
+        );
         const baseSpriteY = -7;
         const startX = this.x;
         const startY = this.y;
@@ -1161,7 +1355,14 @@ export default class Unit extends Phaser.GameObjects.Container {
             });
         }));
 
-        this.activeSkillTimers.push(this.scene.time.delayedCall(totalDurationMs, () => {
+        if (castLockDurationMs > totalDurationMs) {
+            this.activeSkillTimers.push(this.scene.time.delayedCall(totalDurationMs, () => {
+                if (!this.isCurrentActiveSkillCast(castSerial)) return;
+                this.restoreDuckxelIdleFrame();
+            }));
+        }
+
+        this.activeSkillTimers.push(this.scene.time.delayedCall(castLockDurationMs, () => {
             if (!this.isCurrentActiveSkillCast(castSerial)) return;
             this.completeActiveSkillRuntime(castSerial);
             this.duckxelAttackPlaying = false;
@@ -1172,6 +1373,316 @@ export default class Unit extends Phaser.GameObjects.Container {
             this.clearActiveSkillTimers();
         }));
         return true;
+    }
+
+    private playDragonBladeSkillSequence(
+        castSerial: number,
+        definition: ActiveSkillDefinition,
+        profile: DuckxelAssetProfile,
+        directionAnimation: { frameCount: number; fps: number },
+        flipX: boolean,
+        targetVector: { x: number; y: number },
+        onImpact: (unit: Unit, skill: ActiveSkillDefinition, x: number, y: number) => void,
+    ): boolean {
+        if (!this.sprite) return false;
+        const anchors = BARBARIAN_DRAGON_SWORD_TIP_ANCHORS[this.duckxelDirection];
+        if (!anchors || anchors.length !== directionAnimation.frameCount) {
+            this.cancelActiveSkillRuntime(castSerial);
+            this.duckxelAttackPlaying = false;
+            return false;
+        }
+
+        const chargeDurationMs = BARBARIAN_DRAGON_SKILL_ASSETS.chargeDurationMs;
+        const frameDuration = Math.round(chargeDurationMs / Math.max(1, directionAnimation.frameCount - 1));
+        const totalDurationMs = definition.timingByDirection[this.duckxelDirection]?.totalMs
+            ?? chargeDurationMs
+                + BARBARIAN_DRAGON_SKILL_ASSETS.releaseCompressionMs
+                + BARBARIAN_DRAGON_SKILL_ASSETS.releaseHoldMs;
+        const directionLength = Math.hypot(targetVector.x, targetVector.y);
+        const directionX = directionLength > 0.001 ? targetVector.x / directionLength : 0;
+        const directionY = directionLength > 0.001
+            ? targetVector.y / directionLength
+            : this.team === 'blue' ? -1 : 1;
+        const projectileDestination = this.getActiveSkillEffectPoint(
+            { x: this.x, y: this.y },
+            directionX,
+            directionY,
+            definition.travelingProjectile?.maxRange ?? definition.effectForwardDistance,
+        );
+        const releaseAnchor = anchors.find(anchor => anchor.release) ?? anchors[anchors.length - 1];
+        const orbitCenterX = this.x;
+        const orbitCenterY = this.y + BARBARIAN_DRAGON_SKILL_ASSETS.orbitCenterYOffset;
+        const initialReleasePoint = this.getDragonBladeAnchorWorld(
+            releaseAnchor.x,
+            releaseAnchor.y,
+            flipX,
+        );
+        const releaseVectorX = initialReleasePoint.x - orbitCenterX;
+        const releaseVectorY = initialReleasePoint.y - orbitCenterY;
+        const releaseDistance = Math.max(1, Math.hypot(releaseVectorX, releaseVectorY));
+        const outwardX = releaseVectorX / releaseDistance;
+        const outwardY = releaseVectorY / releaseDistance;
+        const tangentBasisX = -outwardY;
+        const tangentBasisY = outwardX;
+        const releaseAngle = Math.atan2(releaseVectorY, releaseVectorX);
+        const firstTexture = `${BARBARIAN_DRAGON_SKILL_ASSETS.dragonTexturePrefix}_0`;
+        const attachedDragon = this.scene.textures.exists(firstTexture)
+            ? this.scene.add.image(this.x, this.y, firstTexture)
+                .setOrigin(
+                    BARBARIAN_DRAGON_SKILL_ASSETS.dragonTailOriginX,
+                    BARBARIAN_DRAGON_SKILL_ASSETS.dragonTailOriginY,
+                )
+                .setDisplaySize(
+                    BARBARIAN_DRAGON_SKILL_ASSETS.attachedDragonStartSize,
+                    BARBARIAN_DRAGON_SKILL_ASSETS.attachedDragonStartSize,
+                )
+                .setDepth(this.depth + 0.2)
+            : null;
+        if (attachedDragon) {
+            this.activeSkillVisualObjects.push(attachedDragon);
+            const growthRatio = BARBARIAN_DRAGON_SKILL_ASSETS.attachedDragonEndSize
+                / BARBARIAN_DRAGON_SKILL_ASSETS.attachedDragonStartSize;
+            this.scene.tweens.add({
+                targets: attachedDragon,
+                scaleX: attachedDragon.scaleX * growthRatio,
+                scaleY: attachedDragon.scaleY * growthRatio,
+                duration: chargeDurationMs,
+                ease: 'Sine.InOut',
+            });
+        }
+
+        let vfxFrame = 0;
+        if (attachedDragon) {
+            this.activeSkillTimers.push(this.scene.time.addEvent({
+                delay: Math.round(1000 / BARBARIAN_DRAGON_SKILL_ASSETS.dragonFps),
+                loop: true,
+                callback: () => {
+                    if (!this.isCurrentActiveSkillCast(castSerial) || !attachedDragon.active) return;
+                    vfxFrame = (vfxFrame + 1) % BARBARIAN_DRAGON_SKILL_ASSETS.dragonFrameCount;
+                    const texture = `${BARBARIAN_DRAGON_SKILL_ASSETS.dragonTexturePrefix}_${vfxFrame}`;
+                    if (this.scene.textures.exists(texture)) attachedDragon.setTexture(texture);
+                },
+            }));
+
+            const chargeStartedAt = this.scene.time.now;
+            let dragonBehind = Math.sin(releaseAngle) < 0;
+
+            const getOrbitPoint = (progress: number) => {
+                const clampedProgress = Phaser.Math.Clamp(progress, 0, 1);
+                const returnStart = BARBARIAN_DRAGON_SKILL_ASSETS.orbitReturnStartProgress;
+                const radialRadius = clampedProgress <= returnStart
+                    ? Phaser.Math.Linear(
+                        BARBARIAN_DRAGON_SKILL_ASSETS.orbitStartRadiusX,
+                        BARBARIAN_DRAGON_SKILL_ASSETS.orbitEndRadiusX,
+                        Phaser.Math.SmoothStep(clampedProgress / returnStart, 0, 1),
+                    )
+                    : Phaser.Math.Linear(
+                        BARBARIAN_DRAGON_SKILL_ASSETS.orbitEndRadiusX,
+                        releaseDistance,
+                        Phaser.Math.SmoothStep(
+                            (clampedProgress - returnStart) / (1 - returnStart),
+                            0,
+                            1,
+                        ),
+                    );
+                const tangentRadius = Phaser.Math.Linear(
+                    BARBARIAN_DRAGON_SKILL_ASSETS.orbitStartRadiusY,
+                    BARBARIAN_DRAGON_SKILL_ASSETS.orbitEndRadiusY,
+                    Phaser.Math.SmoothStep(clampedProgress, 0, 1),
+                );
+                const orbitAngle = Math.PI * 2 * clampedProgress;
+                const radialComponent = Math.cos(orbitAngle) * radialRadius;
+                const tangentComponent = Math.sin(orbitAngle) * tangentRadius;
+                return {
+                    x: orbitCenterX + outwardX * radialComponent + tangentBasisX * tangentComponent,
+                    y: orbitCenterY + outwardY * radialComponent + tangentBasisY * tangentComponent,
+                    orbitAngle,
+                };
+            };
+
+            const updateDragonOnOrbit = () => {
+                if (!this.isCurrentActiveSkillCast(castSerial) || !attachedDragon.active) return;
+                const elapsedMs = Phaser.Math.Clamp(
+                    this.scene.time.now - chargeStartedAt,
+                    0,
+                    chargeDurationMs,
+                );
+                const orbitProgress = Phaser.Math.Clamp(elapsedMs / chargeDurationMs, 0, 1);
+                const orbitPoint = getOrbitPoint(orbitProgress);
+                attachedDragon.setPosition(
+                    Math.round(orbitPoint.x * 2) / 2,
+                    Math.round(orbitPoint.y * 2) / 2,
+                );
+
+                const sampleOffset = 0.002;
+                const previousPoint = getOrbitPoint(Math.max(0, orbitProgress - sampleOffset));
+                const nextPoint = getOrbitPoint(Math.min(1, orbitProgress + sampleOffset));
+                const pathRotation = Phaser.Math.Angle.Between(
+                    previousPoint.x,
+                    previousPoint.y,
+                    nextPoint.x,
+                    nextPoint.y,
+                );
+                const rotationBlend = Phaser.Math.SmoothStep(
+                    Phaser.Math.Clamp(
+                        (orbitProgress - BARBARIAN_DRAGON_SKILL_ASSETS.orbitReleaseRotationStartProgress)
+                        / (1 - BARBARIAN_DRAGON_SKILL_ASSETS.orbitReleaseRotationStartProgress),
+                        0,
+                        1,
+                    ),
+                    0,
+                    1,
+                );
+                attachedDragon.setRotation(Phaser.Math.Angle.RotateTo(
+                    pathRotation,
+                    releaseAngle,
+                    Math.PI * rotationBlend,
+                ));
+
+                const verticalPhase = (orbitPoint.y - orbitCenterY)
+                    / Math.max(1, BARBARIAN_DRAGON_SKILL_ASSETS.orbitEndRadiusY);
+                if (verticalPhase < -BARBARIAN_DRAGON_SKILL_ASSETS.orbitDepthHysteresis) {
+                    dragonBehind = true;
+                } else if (verticalPhase > BARBARIAN_DRAGON_SKILL_ASSETS.orbitDepthHysteresis) {
+                    dragonBehind = false;
+                }
+                attachedDragon.setDepth(dragonBehind ? this.depth - 0.2 : this.depth + 0.2);
+            };
+            updateDragonOnOrbit();
+            this.activeSkillTimers.push(this.scene.time.addEvent({
+                delay: 16,
+                loop: true,
+                callback: updateDragonOnOrbit,
+            }));
+        }
+
+        let releaseStarted = false;
+        for (let frame = 0; frame < directionAnimation.frameCount; frame += 1) {
+            this.activeSkillTimers.push(this.scene.time.delayedCall(frame * frameDuration, () => {
+                if (!this.isCurrentActiveSkillCast(castSerial) || !this.sprite) return;
+                const frameKey = `${profile.texturePrefix}_skill_${this.duckxelDirection}_${frame}`;
+                if (this.scene.textures.exists(frameKey)) {
+                    this.sprite.setTexture(frameKey);
+                    this.sprite.setFlipX(flipX);
+                    const displaySize = this.getDuckxelDisplaySize();
+                    this.sprite.setDisplaySize(displaySize, displaySize);
+                    this.sprite.setScale(this.spriteBaseScale);
+                }
+
+                const anchor = anchors[frame];
+                const anchorWorld = this.getDragonBladeAnchorWorld(anchor.x, anchor.y, flipX);
+
+                if (!anchor.release || releaseStarted) return;
+                releaseStarted = true;
+                this.activeSkillReleaseOrigin = { x: anchorWorld.x, y: anchorWorld.y };
+                const launchDragon = () => {
+                    if (!this.isCurrentActiveSkillCast(castSerial)) return;
+                    if (attachedDragon?.active) attachedDragon.destroy();
+                    onImpact(this, definition, projectileDestination.x, projectileDestination.y);
+                };
+                if (!attachedDragon?.active) {
+                    launchDragon();
+                    return;
+                }
+
+                attachedDragon.setPosition(anchorWorld.x, anchorWorld.y);
+                attachedDragon.setRotation(releaseAngle);
+                attachedDragon.setDepth(this.depth + 0.2);
+                this.scene.tweens.killTweensOf(attachedDragon);
+                const releasedScaleX = attachedDragon.scaleX;
+                const releasedScaleY = attachedDragon.scaleY;
+                const compressMs = Math.round(BARBARIAN_DRAGON_SKILL_ASSETS.releaseCompressionMs * 0.62);
+                this.scene.tweens.add({
+                    targets: attachedDragon,
+                    scaleX: releasedScaleX * 0.76,
+                    scaleY: releasedScaleY * 1.08,
+                    duration: compressMs,
+                    ease: 'Sine.In',
+                    onComplete: () => {
+                        if (!this.isCurrentActiveSkillCast(castSerial) || !attachedDragon.active) return;
+                        this.scene.tweens.add({
+                            targets: attachedDragon,
+                            scaleX: releasedScaleX,
+                            scaleY: releasedScaleY,
+                            duration: BARBARIAN_DRAGON_SKILL_ASSETS.releaseCompressionMs - compressMs,
+                            ease: 'Back.Out',
+                            onComplete: launchDragon,
+                        });
+                    },
+                });
+            }));
+        }
+
+        this.activeSkillTimers.push(this.scene.time.delayedCall(totalDurationMs, () => {
+            if (!this.isCurrentActiveSkillCast(castSerial)) return;
+            this.completeActiveSkillRuntime(castSerial);
+            this.duckxelAttackPlaying = false;
+            this.restoreDuckxelIdleFrame();
+            this.state = UnitState.IDLE;
+            this.acquisitionTimer = 0;
+            this.retargetTimer = 0;
+            this.activeSkillReleaseOrigin = null;
+            this.clearActiveSkillTimers();
+        }));
+        return true;
+    }
+
+    private getDragonBladeAnchorWorld(sourceX: number, sourceY: number, flipX: boolean) {
+        if (!this.sprite) return { x: this.x, y: this.y };
+        const normalizedX = flipX ? 1 - sourceX / BARBARIAN_DRAGON_SKILL_ASSETS.sourceFrameSize
+            : sourceX / BARBARIAN_DRAGON_SKILL_ASSETS.sourceFrameSize;
+        const normalizedY = sourceY / BARBARIAN_DRAGON_SKILL_ASSETS.sourceFrameSize;
+        return {
+            x: this.x + (normalizedX - this.sprite.originX) * this.sprite.displayWidth,
+            y: this.y + this.sprite.y + (normalizedY - this.sprite.originY) * this.sprite.displayHeight,
+        };
+    }
+
+    public getActiveSkillReleaseOrigin() {
+        return this.activeSkillReleaseOrigin ? { ...this.activeSkillReleaseOrigin } : null;
+    }
+
+    public playActiveSkillFollowUp(
+        directionX: number,
+        directionY: number,
+        frames: number[],
+        frameDurationMs: number,
+    ) {
+        const profile = this.duckxelAssetProfile;
+        const skill = profile?.previewActions.skill;
+        if (!profile || !skill || !this.sprite || !this.active || this.state === UnitState.DIE || frames.length === 0) return;
+
+        const direction = this.getDuckxelDirection(directionX, directionY);
+        const resolved = resolveDuckxelDirectionAnimation(profile, 'skill', direction);
+        if (!resolved) return;
+
+        const serial = ++this.followUpSkillAnimationSerial;
+        this.followUpSkillAnimationPlaying = true;
+        this.duckxelDirection = direction;
+        const duration = Math.max(55, frameDurationMs);
+        const safeFrames = frames.map(frame => Phaser.Math.Clamp(
+            frame,
+            0,
+            resolved.directionDefinition.frameCount - 1,
+        ));
+
+        safeFrames.forEach((frame, index) => {
+            this.scene.time.delayedCall(index * duration, () => {
+                if (serial !== this.followUpSkillAnimationSerial || !this.active || !this.sprite || this.state === UnitState.DIE) return;
+                const frameKey = `${profile.texturePrefix}_skill_${direction}_${frame}`;
+                if (!this.scene.textures.exists(frameKey)) return;
+                this.sprite.setTexture(frameKey);
+                this.sprite.setFlipX(resolved.flipX);
+                const displaySize = this.getDuckxelDisplaySize();
+                this.sprite.setDisplaySize(displaySize, displaySize);
+                this.sprite.setScale(this.spriteBaseScale);
+            });
+        });
+
+        this.scene.time.delayedCall(safeFrames.length * duration, () => {
+            if (serial !== this.followUpSkillAnimationSerial) return;
+            this.followUpSkillAnimationPlaying = false;
+        });
     }
 
     private getActiveSkillLandingPoint(directionX: number, directionY: number, distance: number) {
@@ -1240,8 +1751,16 @@ export default class Unit extends Phaser.GameObjects.Container {
     }
 
     private clearActiveSkillTimers() {
+        this.followUpSkillAnimationSerial += 1;
+        this.followUpSkillAnimationPlaying = false;
         for (const timer of this.activeSkillTimers) timer.remove(false);
         this.activeSkillTimers = [];
+        for (const visual of this.activeSkillVisualObjects) {
+            this.scene.tweens.killTweensOf(visual);
+            if (visual.active) visual.destroy();
+        }
+        this.activeSkillVisualObjects = [];
+        this.activeSkillReleaseOrigin = null;
         this.activeSkillMotionTween?.stop();
         this.activeSkillMotionTween = null;
         this.activeSkillAirborne = false;
@@ -1329,10 +1848,15 @@ export default class Unit extends Phaser.GameObjects.Container {
         const myLane = this.getNavigationLane();
         if (this.duckxelBattleProfile) {
             const targeting = this.duckxelBattleProfile.targeting;
+            const candidates = (entityManager.getUnits() as Unit[])
+                .filter(candidate => candidate !== this.ignoredTarget || this.ignoredTargetTimer <= 0);
+            const currentTarget = this.target === this.ignoredTarget && this.ignoredTargetTimer > 0
+                ? null
+                : this.target;
             const resolution = resolveCombatTarget({
                 actor: this,
-                currentTarget: this.target,
-                candidates: entityManager.getUnits() as Unit[],
+                currentTarget,
+                candidates,
                 lane: myLane,
                 policy: targeting.policy,
                 mask: targeting.mask,
@@ -1341,6 +1865,9 @@ export default class Unit extends Phaser.GameObjects.Container {
                 sameLanePenalty: targeting.sameLanePenalty,
                 bridgeCrossLaneAllowed: targeting.bridgeCrossLaneAllowed,
                 bridgeEngagementRange: targeting.bridgeEngagementRange,
+                centerPullHalfWidth: targeting.centerPullHalfWidth,
+                rearAggroRange: targeting.rearAggroRange,
+                backtrackTolerance: targeting.backtrackTolerance,
                 preserveCurrentTower: this.towerTargetCommitted,
                 getRouteDistance: (target) => this.getTravelCostTo(target),
                 getBridgeCorridor: (target) => this.gameMap?.getBridgeCorridorLane?.(target.x, target.y) ?? null,
@@ -1420,6 +1947,9 @@ export default class Unit extends Phaser.GameObjects.Container {
         }
         this.towerTargetCommitted = false;
         this.target = target;
+        this.targetSteeringBlendRemainingMs = target && !this.isTower
+            ? TARGET_STEERING_BLEND_MS
+            : 0;
         this.targetLockTimer = target ? (this.duckxelBattleProfile?.targeting.lockDuration ?? 430) : 0;
         this.retargetTimer = target ? Math.min(this.duckxelBattleProfile?.targeting.scanInterval ?? 320, 260) : 0;
         this.firstHitPending = Boolean(target);
@@ -1526,9 +2056,10 @@ export default class Unit extends Phaser.GameObjects.Container {
         }
 
         this.routeStallCount += 1;
-        this.selectRouteLaneForTarget(this.target, true);
         this.retargetTimer = 0;
         if (this.routeStallCount >= 4 && !this.target.isTower) {
+            this.ignoredTarget = this.target;
+            this.ignoredTargetTimer = 900;
             this.setTarget(null);
             this.state = UnitState.MOVE;
             this.acquisitionTimer = 120;
@@ -1636,7 +2167,7 @@ export default class Unit extends Phaser.GameObjects.Container {
         return candidate.simulationOrder < (current?.simulationOrder ?? Number.MAX_SAFE_INTEGER);
     }
 
-    private chase() {
+    private chase(delta: number) {
         if (!this.target) return;
         const body = this.body as Phaser.Physics.Arcade.Body;
         const speed = this.stats.speed * this.slowFactor;
@@ -1645,7 +2176,7 @@ export default class Unit extends Phaser.GameObjects.Container {
         const bridgeWaypoint = this.getBridgeRouteWaypoint();
         if (bridgeWaypoint) {
             const angle = Phaser.Math.Angle.Between(this.x, this.y, bridgeWaypoint.x, bridgeWaypoint.y);
-            body.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
+            this.setSteeredChaseVelocity(body, Math.cos(angle) * speed, Math.sin(angle) * speed, speed, delta);
             return;
         }
 
@@ -1657,14 +2188,14 @@ export default class Unit extends Phaser.GameObjects.Container {
 
             if (dist < minRange) {
                 const retreat = Phaser.Math.Angle.Between(this.target.x, this.target.y, this.x, this.y);
-                body.setVelocity(Math.cos(retreat) * speed * 0.72, Math.sin(retreat) * speed * 0.72);
+                this.setSteeredChaseVelocity(body, Math.cos(retreat) * speed * 0.72, Math.sin(retreat) * speed * 0.72, speed, delta);
                 return;
             }
 
             if (dist < safeRange) {
                 const dir = this.team === 'blue' ? 1 : -1;
                 const strafe = Phaser.Math.Angle.Between(this.x, this.y, this.target.x, this.target.y) + dir * Math.PI / 2;
-                body.setVelocity(Math.cos(strafe) * speed * 0.46, Math.sin(strafe) * speed * 0.46);
+                this.setSteeredChaseVelocity(body, Math.cos(strafe) * speed * 0.46, Math.sin(strafe) * speed * 0.46, speed, delta);
                 return;
             }
         }
@@ -1682,21 +2213,44 @@ export default class Unit extends Phaser.GameObjects.Container {
             targetY = attackApproach.y;
         }
 
-        if (this.gameMap && typeof this.gameMap.getWaypointTowardsForLane === 'function') {
+        const usesDirectRiverJumpRoute = this.duckxelBattleProfile?.behavior === 'building-jump';
+        if (!usesDirectRiverJumpRoute && this.gameMap && typeof this.gameMap.getWaypointTowardsForLane === 'function') {
             const waypoint = this.gameMap.getWaypointTowardsForLane(this.getNavigationLane(), this.x, this.y, targetX, targetY, this.team);
             targetX = waypoint.x;
             targetY = waypoint.y;
-        } else if (this.gameMap && typeof this.gameMap.getWaypointTowards === 'function') {
+        } else if (!usesDirectRiverJumpRoute && this.gameMap && typeof this.gameMap.getWaypointTowards === 'function') {
             const waypoint = this.gameMap.getWaypointTowards(this.x, this.y, targetX, targetY, this.team);
             targetX = waypoint.x;
             targetY = waypoint.y;
         }
 
         const angle = Phaser.Math.Angle.Between(this.x, this.y, targetX, targetY);
-        body.setVelocity(
-            Math.cos(angle) * speed,
-            Math.sin(angle) * speed
-        );
+        this.setSteeredChaseVelocity(body, Math.cos(angle) * speed, Math.sin(angle) * speed, speed, delta);
+    }
+
+    private setSteeredChaseVelocity(
+        body: Phaser.Physics.Arcade.Body,
+        desiredX: number,
+        desiredY: number,
+        maxSpeed: number,
+        delta: number,
+    ) {
+        if (this.targetSteeringBlendRemainingMs <= 0) {
+            body.setVelocity(desiredX, desiredY);
+            return;
+        }
+
+        const blend = 1 - Math.exp(-Math.max(0, delta) / 62);
+        let velocityX = Phaser.Math.Linear(body.velocity.x, desiredX, blend);
+        let velocityY = Phaser.Math.Linear(body.velocity.y, desiredY, blend);
+        const magnitude = Math.hypot(velocityX, velocityY);
+        if (magnitude > maxSpeed && magnitude > 0.001) {
+            const scale = maxSpeed / magnitude;
+            velocityX *= scale;
+            velocityY *= scale;
+        }
+        body.setVelocity(velocityX, velocityY);
+        this.targetSteeringBlendRemainingMs = Math.max(0, this.targetSteeringBlendRemainingMs - delta);
     }
 
     private getBridgeRouteWaypoint(): { x: number; y: number } | null {
@@ -1779,41 +2333,8 @@ export default class Unit extends Phaser.GameObjects.Container {
     }
 
     public showHitReaction(style: 'melee' | 'ranged' | 'splash', color: number) {
-        const size = style === 'melee' ? 2.8 : style === 'splash' ? 5.5 : 3.5;
-        const ring = this.scene.add.ellipse(this.x, this.y - 4, size * 2.2, size, color, style === 'splash' ? 0.13 : 0.1);
-        ring.setDepth(CONSTANTS.DEPTH.PROJECTILE + 3);
-        ring.setRotation(Phaser.Math.FloatBetween(-0.55, 0.55));
-        ring.setBlendMode(Phaser.BlendModes.ADD);
-        this.scene.tweens.add({
-            targets: ring,
-            alpha: 0,
-            scaleX: 1.2,
-            scaleY: 0.65,
-            duration: 72,
-            ease: 'Quad.Out',
-            onComplete: () => ring.destroy(),
-        });
-
-        if (style === 'splash') {
-            const inner = this.scene.add.circle(this.x, this.y - 3, 2.4, 0xffffff, 0.12);
-            inner.setDepth(CONSTANTS.DEPTH.PROJECTILE + 4);
-            inner.setBlendMode(Phaser.BlendModes.ADD);
-            this.scene.tweens.add({
-                targets: inner,
-                alpha: 0,
-                scaleX: 1.15,
-                scaleY: 1.15,
-                duration: 70,
-                onComplete: () => inner.destroy(),
-            });
-        }
-
-        if (this.sprite) {
-            this.sprite.setTint(0xffd2c6);
-            this.scene.time.delayedCall(42, () => {
-                if (this.sprite && this.active) this.sprite.clearTint();
-            });
-        }
+        void style;
+        void color;
     }
 
     private scheduleGameplayAttack(
@@ -1914,7 +2435,6 @@ export default class Unit extends Phaser.GameObjects.Container {
         if (this.hasDefenseAura) {
             amount = Math.floor(amount * (1 - this.defenseAuraReduction));
         }
-
         this.stats.hp -= amount;
 
         if (this.isKingTower && !this.towerActive) {
@@ -1932,13 +2452,18 @@ export default class Unit extends Phaser.GameObjects.Container {
     }
 
     public addDebuff(debuff: Debuff) {
-        if (this.isTower) return;
         this.debuffs = this.debuffs.filter(d => d.type !== debuff.type);
         this.debuffs.push(debuff);
     }
 
     private die() {
         this.stats.hp = 0;
+        this.knockupSerial += 1;
+        this.knockupTween?.stop();
+        this.knockupTween = null;
+        this.activeSkillAirborne = false;
+        this.forcedDisplacementTween?.stop();
+        this.forcedDisplacementTween = null;
         this.cancelActiveSkillCast();
         this.cancelAttackSequence(false);
         this.setTarget(null);
@@ -1954,32 +2479,6 @@ export default class Unit extends Phaser.GameObjects.Container {
         }
 
         this.scene.events.emit('unitDeath', { unit: this });
-
-        const burstRadius = this.isTower ? 28 : 16;
-        const burst = this.scene.add.circle(this.x, this.y - 2, burstRadius, Unit.getPalette(this.team).fx, 0.52);
-        burst.setDepth(CONSTANTS.DEPTH.PROJECTILE + 2);
-        burst.setBlendMode(Phaser.BlendModes.ADD);
-        this.scene.tweens.add({
-            targets: burst,
-            alpha: 0,
-            scaleX: this.isTower ? 2.8 : 2.2,
-            scaleY: this.isTower ? 2.8 : 2.2,
-            duration: this.isTower ? 380 : 220,
-            ease: 'Quad.Out',
-            onComplete: () => burst.destroy(),
-        });
-
-        const core = this.scene.add.circle(this.x, this.y - 2, this.isTower ? 14 : 8, 0xffffff, 0.65);
-        core.setDepth(CONSTANTS.DEPTH.PROJECTILE + 3);
-        core.setBlendMode(Phaser.BlendModes.ADD);
-        this.scene.tweens.add({
-            targets: core,
-            alpha: 0,
-            scaleX: 1.8,
-            scaleY: 1.8,
-            duration: this.isTower ? 200 : 120,
-            onComplete: () => core.destroy(),
-        });
 
         const fadeDuration = this.isTower ? 600 : 360;
         const fadeDelay = this.isTower ? 180 : 0;
@@ -2000,7 +2499,6 @@ export default class Unit extends Phaser.GameObjects.Container {
     }
 
     private playTowerDestroySequence() {
-        const palette = Unit.getPalette(this.team);
         if (this.scene.textures.exists('battle_arena_royal_valley')) {
             this.createArenaTowerRuin();
         }
@@ -2044,28 +2542,6 @@ export default class Unit extends Phaser.GameObjects.Container {
         }
 
         // 3) 화염 파티클 — 팀 색 불꽃
-        for (let i = 0; i < 3; i++) {
-            const flame = this.scene.add.circle(
-                this.x + (Math.random() - 0.5) * 16,
-                this.y - 10 + (Math.random() - 0.5) * 10,
-                5 + Math.random() * 5,
-                i === 0 ? 0xff6622 : palette.fx,
-                0.72
-            );
-            flame.setDepth(CONSTANTS.DEPTH.PROJECTILE + 4);
-            flame.setBlendMode(Phaser.BlendModes.ADD);
-            this.scene.tweens.add({
-                targets: flame,
-                y: flame.y - 20 - Math.random() * 14,
-                alpha: 0,
-                scaleX: 1.6,
-                scaleY: 1.6,
-                duration: 320 + i * 80,
-                ease: 'Sine.Out',
-                onComplete: () => flame.destroy(),
-            });
-        }
-
         // 4) Charred base — 그을린 원형 베이스 영구 잔존
         const charredWidth = this.isKingTower ? 60 : 52;
         const charredHeight = this.isKingTower ? 12 : 10;
@@ -2146,8 +2622,8 @@ export default class Unit extends Phaser.GameObjects.Container {
         if (!movingAcrossRiver) return false;
 
         const approachBand = this.team === 'blue'
-            ? this.y <= riverBottom + 44
-            : this.y >= riverTop - 44;
+            ? this.y <= riverBottom + 56
+            : this.y >= riverTop - 56;
         if (!approachBand) return false;
 
         const laneX = Phaser.Math.Clamp(
@@ -2163,12 +2639,15 @@ export default class Unit extends Phaser.GameObjects.Container {
     private startHogRiverJump(landingX: number, landingY: number) {
         if (!this.sprite) return;
         this.isRiverJumping = true;
+        this.hogJumpStart = { x: this.x, y: this.y };
         this.hogJumpTarget = { x: landingX, y: landingY };
+        this.hogJumpElapsed = 0;
         this.duckxelAttackPlaying = true;
         const body = this.body as Phaser.Physics.Arcade.Body;
-        const angle = Phaser.Math.Angle.Between(this.x, this.y, landingX, landingY);
         const jumpSpeed = Math.max(this.stats.speed * 1.9, 116);
-        body.setVelocity(Math.cos(angle) * jumpSpeed, Math.sin(angle) * jumpSpeed);
+        const jumpDistance = Phaser.Math.Distance.Between(this.x, this.y, landingX, landingY);
+        this.hogJumpDuration = Math.max(560, (jumpDistance / jumpSpeed) * 1000);
+        body.setVelocity(0, 0);
         this.duckxelDirection = this.getDuckxelDirection(landingX - this.x, landingY - this.y);
         this.duckxelFrameIndex = 0;
         this.duckxelFrameTimer = 0;
@@ -2181,57 +2660,43 @@ export default class Unit extends Phaser.GameObjects.Container {
         }
 
         this.scene.tweens.killTweensOf(this.sprite);
-        this.scene.tweens.add({
-            targets: this.sprite,
-            y: -34,
-            scaleX: this.spriteBaseScale * 1.03,
-            scaleY: this.spriteBaseScale * 1.03,
-            duration: 170,
-            yoyo: true,
-            ease: 'Sine.Out',
-            onComplete: () => {
-                if (!this.sprite || !this.active) return;
-                this.sprite.y = -7;
-                this.sprite.setScale(this.spriteBaseScale);
-            },
-        });
-
-        this.scene.tweens.add({
-            targets: this.shadow,
-            scaleX: 0.72,
-            scaleY: 0.55,
-            alpha: 0.18,
-            duration: 170,
-            yoyo: true,
-            ease: 'Sine.Out',
-            onComplete: () => {
-                if (!this.active) return;
-                this.shadow.alpha = 1;
-            },
-        });
+        this.scene.tweens.killTweensOf(this.shadow);
     }
 
-    private updateHogRiverJump(): boolean {
-        if (!this.isRiverJumping || !this.hogJumpTarget) return false;
+    private updateHogRiverJump(delta: number): boolean {
+        if (!this.isRiverJumping || !this.hogJumpStart || !this.hogJumpTarget || !this.sprite) return false;
         const body = this.body as Phaser.Physics.Arcade.Body;
-        const dist = Phaser.Math.Distance.Between(this.x, this.y, this.hogJumpTarget.x, this.hogJumpTarget.y);
-        if (dist <= 9) {
+        this.hogJumpElapsed += delta;
+        const progress = Phaser.Math.Clamp(this.hogJumpElapsed / Math.max(1, this.hogJumpDuration), 0, 1);
+        const arc = Math.sin(Math.PI * progress);
+        this.x = Phaser.Math.Linear(this.hogJumpStart.x, this.hogJumpTarget.x, progress);
+        this.y = Phaser.Math.Linear(this.hogJumpStart.y, this.hogJumpTarget.y, progress);
+        body.setVelocity(0, 0);
+        this.sprite.y = -7 - arc * 46;
+        this.sprite.setScale(this.spriteBaseScale * (1 + arc * 0.04));
+        this.shadow.setScale(1 - arc * 0.3, 1 - arc * 0.45);
+        this.shadow.alpha = 1 - arc * 0.7;
+
+        if (progress >= 1) {
             this.x = this.hogJumpTarget.x;
             this.y = this.hogJumpTarget.y;
             body.setVelocity(0, 0);
             this.isRiverJumping = false;
+            this.hogJumpStart = null;
             this.hogJumpTarget = null;
+            this.hogJumpElapsed = 0;
+            this.hogJumpDuration = 0;
             this.hogJumpCooldown = 850;
             this.duckxelAttackPlaying = false;
             this.duckxelFrameTimer = 0;
             this.state = UnitState.IDLE;
+            this.sprite.y = -7;
+            this.sprite.setScale(this.spriteBaseScale);
+            this.shadow.setScale(1);
+            this.shadow.alpha = 1;
             this.clampPosition();
             return false;
         }
-
-        const angle = Phaser.Math.Angle.Between(this.x, this.y, this.hogJumpTarget.x, this.hogJumpTarget.y);
-        const jumpSpeed = Math.max(this.stats.speed * 1.9, 116);
-        body.setVelocity(Math.cos(angle) * jumpSpeed, Math.sin(angle) * jumpSpeed);
         return true;
     }
 
@@ -2241,6 +2706,11 @@ export default class Unit extends Phaser.GameObjects.Container {
         const speed = this.stats.speed * this.slowFactor;
         const advanceTargetY = this.team === 'blue' ? CONSTANTS.ARENA.TOP + 90 : CONSTANTS.ARENA.UI_START - 90;
         if (this.tryStartHogRiverJump(this.x, advanceTargetY)) {
+            return;
+        }
+
+        if (this.duckxelBattleProfile?.behavior === 'building-jump') {
+            body.setVelocity(0, direction * speed);
             return;
         }
 
@@ -2267,6 +2737,7 @@ export default class Unit extends Phaser.GameObjects.Container {
     }
 
     private updateHpBar() {
+        this.updateHpBarVisualPosition();
         const pct = Math.max(0, this.stats.hp / this.maxHp);
         this.hpBarFill.scaleX = pct;
 
@@ -2277,6 +2748,81 @@ export default class Unit extends Phaser.GameObjects.Container {
         } else {
             this.hpBarFill.setFillStyle(CONSTANTS.COLORS.HP_RED);
         }
+    }
+
+    private updateHpBarVisualPosition() {
+        if (this.isTower || !this.sprite) return;
+
+        const frame = this.sprite.frame;
+        const visibleTop = Unit.findVisibleTextureTop(frame);
+        const fallbackTopY = this.sprite.y - this.sprite.displayHeight / 2;
+        const sourceHeight = Math.max(1, frame.realHeight);
+        const visibleTopY = visibleTop === null
+            ? fallbackTopY
+            : this.sprite.y
+                + (visibleTop - this.sprite.originY * sourceHeight) * Math.abs(this.sprite.scaleY);
+        const visualGap = 4;
+        const hpBarY = Math.min(
+            this.configuredHpBarY,
+            visibleTopY - visualGap - this.hpBarBg.displayHeight / 2,
+        );
+
+        this.hpBarBg.y = hpBarY;
+        this.hpBarFill.y = hpBarY;
+        this.hpBarHighlight.y = hpBarY - 1.2;
+    }
+
+    private static findVisibleTextureTop(frame: Phaser.Textures.Frame): number | null {
+        const cacheKey = [
+            frame.texture.key,
+            String(frame.name),
+            frame.cutX,
+            frame.cutY,
+            frame.cutWidth,
+            frame.cutHeight,
+        ].join(':');
+        if (Unit.visibleTextureTopCache.has(cacheKey)) {
+            return Unit.visibleTextureTopCache.get(cacheKey) ?? null;
+        }
+
+        let visibleTop: number | null = null;
+        try {
+            const width = Math.max(1, frame.cutWidth);
+            const height = Math.max(1, frame.cutHeight);
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const context = canvas.getContext('2d', { willReadFrequently: true });
+
+            if (context) {
+                context.drawImage(
+                    frame.source.image as CanvasImageSource,
+                    frame.cutX,
+                    frame.cutY,
+                    width,
+                    height,
+                    0,
+                    0,
+                    width,
+                    height,
+                );
+                const pixels = context.getImageData(0, 0, width, height).data;
+
+                scan: for (let y = 0; y < height; y += 1) {
+                    for (let x = 0; x < width; x += 1) {
+                        if (pixels[(y * width + x) * 4 + 3] > 8) {
+                            visibleTop = frame.y + y;
+                            break scan;
+                        }
+                    }
+                }
+            }
+        } catch {
+            visibleTop = null;
+        }
+
+        Unit.visibleTextureTopCache.set(cacheKey, visibleTop);
+        return visibleTop;
     }
 
     private clampPosition() {
@@ -2356,6 +2902,7 @@ export default class Unit extends Phaser.GameObjects.Container {
     private updateDuckxelWalkFrame(delta: number, velocityX: number, velocityY: number, moving: boolean) {
         if (!this.sprite) return;
         if (this.duckxelAttackPlaying) return;
+        if (this.followUpSkillAnimationPlaying) return;
         if (this.remoteElevation > 0) return;
         if (this.isRiverJumping) return;
         if (!this.duckxelAssetProfile) return;
@@ -2514,104 +3061,21 @@ export default class Unit extends Phaser.GameObjects.Container {
     }
 
     private pulseAttackGlow(color: number) {
-        this.attackGlow.setFillStyle(color, 0.55);
-        this.attackGlow.setScale(1, 1);
-        this.attackGlow.setAlpha(0.55);
-        this.scene.tweens.add({
-            targets: this.attackGlow,
-            scaleX: 1.7,
-            scaleY: 1.7,
-            alpha: 0,
-            duration: 220,
-            ease: 'Quad.Out',
-        });
+        void color;
     }
 
     private playMeleeSlash(targetX: number, targetY: number, color: number) {
-        const angle = Phaser.Math.Angle.Between(this.x, this.y, targetX, targetY);
-        const x = this.x + Math.cos(angle) * 14;
-        const y = this.y + Math.sin(angle) * 14;
-
-        const slash = this.scene.add.ellipse(x, y, 24, 10, color, 0.85);
-        slash.setDepth(CONSTANTS.DEPTH.PROJECTILE + 4);
-        slash.setRotation(angle);
-        slash.setBlendMode(Phaser.BlendModes.ADD);
-        this.scene.tweens.add({
-            targets: slash,
-            scaleX: 2.2,
-            scaleY: 0.2,
-            alpha: 0,
-            duration: 140,
-            ease: 'Sine.Out',
-            onComplete: () => slash.destroy(),
-        });
-
-        const spark = this.scene.add.circle(x, y, 4, 0xffffff, 0.7);
-        spark.setDepth(CONSTANTS.DEPTH.PROJECTILE + 5);
-        spark.setBlendMode(Phaser.BlendModes.ADD);
-        this.scene.tweens.add({
-            targets: spark,
-            alpha: 0,
-            scaleX: 2.5,
-            scaleY: 2.5,
-            duration: 100,
-            onComplete: () => spark.destroy(),
-        });
+        void targetX;
+        void targetY;
+        void color;
     }
 
     private playRangedMuzzle(color: number) {
-        const origin = this.getProjectileOrigin();
-        const flash = this.scene.add.circle(origin.x, origin.y, this.unitKey === 'royal_giant' ? 8 : 6, color, 1);
-        flash.setDepth(CONSTANTS.DEPTH.PROJECTILE + 4);
-        flash.setBlendMode(Phaser.BlendModes.ADD);
-        this.scene.tweens.add({
-            targets: flash,
-            scaleX: this.unitKey === 'royal_giant' ? 3.3 : 2.8,
-            scaleY: this.unitKey === 'royal_giant' ? 3.3 : 2.8,
-            alpha: 0,
-            duration: this.unitKey === 'royal_giant' ? 135 : 110,
-            ease: 'Quad.Out',
-            onComplete: () => flash.destroy(),
-        });
-
-        const core = this.scene.add.circle(origin.x, origin.y, this.unitKey === 'royal_giant' ? 4 : 3, 0xffffff, 0.9);
-        core.setDepth(CONSTANTS.DEPTH.PROJECTILE + 5);
-        core.setBlendMode(Phaser.BlendModes.ADD);
-        this.scene.tweens.add({
-            targets: core,
-            alpha: 0,
-            scaleX: 1.8,
-            scaleY: 1.8,
-            duration: 80,
-            onComplete: () => core.destroy(),
-        });
+        void color;
     }
 
     private playMagicCast(color: number) {
-        const ring = this.scene.add.circle(this.x, this.y - 6, 9, color, 0.52);
-        ring.setDepth(CONSTANTS.DEPTH.PROJECTILE + 4);
-        ring.setBlendMode(Phaser.BlendModes.ADD);
-        this.scene.tweens.add({
-            targets: ring,
-            scaleX: 2.6,
-            scaleY: 2.6,
-            alpha: 0,
-            duration: 160,
-            ease: 'Sine.Out',
-            onComplete: () => ring.destroy(),
-        });
-
-        const inner = this.scene.add.circle(this.x, this.y - 6, 4, 0xffffff, 0.65);
-        inner.setDepth(CONSTANTS.DEPTH.PROJECTILE + 5);
-        inner.setBlendMode(Phaser.BlendModes.ADD);
-        this.scene.tweens.add({
-            targets: inner,
-            alpha: 0,
-            scaleX: 2.2,
-            scaleY: 2.2,
-            duration: 120,
-            onComplete: () => inner.destroy(),
-        });
+        void color;
     }
 
     private playMeleeLunge(targetX: number, targetY: number) {
@@ -2772,6 +3236,11 @@ export default class Unit extends Phaser.GameObjects.Container {
     }
 
     private playHeroAttackEffect(targetX: number, targetY: number, color: number) {
+        void targetX;
+        void targetY;
+        void color;
+        return;
+
         const depth = CONSTANTS.DEPTH.PROJECTILE + 4;
         switch (this.unitKey) {
             case 'raiden': {

@@ -139,6 +139,16 @@ export default class Card extends Phaser.GameObjects.Container {
         }
     }
 
+    setUnavailable(unavailable: boolean) {
+        this.setVisible(!unavailable);
+        this.setActive(!unavailable);
+        if (unavailable) {
+            this.disableInteractive();
+            return;
+        }
+        this.setInteractive({ draggable: true });
+    }
+
     setUnitKey(newKey: string) {
         this.unitKey = newKey;
         this.cost = UNIT_TYPES[newKey]?.cost ?? 3;

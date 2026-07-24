@@ -81,20 +81,6 @@ export interface UnitData extends UnitStats {
     activeSkill?: ActiveSkillKey;
 }
 
-/** 상성 보너스 맵: role -> { strong: 유리한 역할, weak: 불리한 역할 } */
-export const ROLE_MATCHUP: Record<UnitRole, { strong: UnitRole[], weak: UnitRole[] }> = {
-    tank: { strong: ['assassin', 'swarm'], weak: ['mage', 'siege'] },
-    assassin: { strong: ['mage', 'support'], weak: ['tank', 'swarm'] },
-    mage: { strong: ['tank', 'swarm'], weak: ['assassin'] },
-    support: { strong: [], weak: ['assassin'] },
-    siege: { strong: ['tank'], weak: ['assassin', 'swarm'] },
-    swarm: { strong: ['siege'], weak: ['mage'] },
-};
-
-/** 상성 데미지 배율 */
-export const MATCHUP_BONUS = 1.25;   // 유리 상성: +25%
-export const MATCHUP_PENALTY = 0.85; // 불리 상성: -15%
-
 /** 진영/카테고리 매핑 (가이드 기반) */
 export const UNIT_FACTIONS: Record<string, { faction: Faction; category: UnitCategory; isHidden?: boolean }> = {
     'spear_goblin': { faction: 'neutral', category: 'dealer' },
@@ -221,14 +207,14 @@ export const FACTION_LABELS: Record<Faction, string> = {
 
 export const UNIT_TYPES: Record<string, UnitData> = {
     'spear_goblin': {
-        name: '창 고블린',
+        name: '창고블린',
         description: '세 마리가 삼각형으로 소환되어 빠르게 창을 던지는 원거리 무리 유닛.',
         spriteKey: 'spear_goblin',
         cost: 3,
         hp: 240,
         damage: 72,
         speed: 54,
-        range: 145,
+        range: 70,
         attackSpeed: 1250,
         movementType: 'ground',
         targetPriority: 'any',
@@ -247,10 +233,10 @@ export const UNIT_TYPES: Record<string, UnitData> = {
         spriteKey: 'royal_giant',
         cost: 6,
         hp: 2600,
-        damage: 220,
+        damage: 240,
         speed: 27,
-        range: 165,
-        attackSpeed: 1850,
+        range: 90,
+        attackSpeed: 2405,
         movementType: 'ground',
         targetPriority: 'building',
         attackType: 'ranged',
@@ -262,13 +248,13 @@ export const UNIT_TYPES: Record<string, UnitData> = {
     },
 
     'duckxel_sword_man': {
-        name: 'Sword Man',
+        name: '기사',
         description: 'Duck.xel imported melee sword fighter for engine validation.',
         spriteKey: 'duckxel_sword_man',
         cost: 3,
         hp: 950,
         damage: 140,
-        speed: 44,
+        speed: 35.2,
         range: 34,
         attackSpeed: 1450,
         movementType: 'ground',
@@ -287,7 +273,7 @@ export const UNIT_TYPES: Record<string, UnitData> = {
         cost: 3,
         hp: 1050,
         damage: 150,
-        speed: 46,
+        speed: 36.8,
         range: 34,
         attackSpeed: 1350,
         movementType: 'ground',
@@ -297,11 +283,12 @@ export const UNIT_TYPES: Record<string, UnitData> = {
         role: 'assassin',
         skill: 'none',
         skillParams: {},
+        activeSkill: 'dragon_blade',
     },
 
     // ===== 🛡️ 탱커 =====
     'skeleton_swordsman': {
-        name: '해골 검사',
+        name: '해골 군단',
         description: 'Small Duck.xel skeleton swordsmen summoned as a compact melee swarm.',
         spriteKey: 'skeleton_swordsman',
         cost: 2,
@@ -314,7 +301,7 @@ export const UNIT_TYPES: Record<string, UnitData> = {
         targetPriority: 'any',
         attackType: 'melee',
         sightRange: 245,
-        spawnCount: 13,
+        spawnCount: 18,
         role: 'swarm',
         skill: 'none',
         skillParams: {},
@@ -325,9 +312,9 @@ export const UNIT_TYPES: Record<string, UnitData> = {
         description: '도끼를 휘두르며 전진하고 대지 강타로 주변 적과 건물에 범위 피해를 주는 Duck.xel 전사.',
         spriteKey: 'duckxel_muradin',
         cost: 4,
-        hp: 1650,
+        hp: 1900,
         damage: 175,
-        speed: 42,
+        speed: 38,
         range: 36,
         attackSpeed: 1400,
         movementType: 'ground',
@@ -341,7 +328,7 @@ export const UNIT_TYPES: Record<string, UnitData> = {
     },
 
     'duckxel_web_acrobat': {
-        name: '레드 마스크',
+        name: '스파이더맨',
         description: '백덤블링으로 거리를 벌린 뒤 포획 거미줄로 적 무리를 속박하는 Duck.xel 근접 영웅.',
         spriteKey: 'duckxel_web_acrobat',
         cost: 4,
@@ -361,7 +348,7 @@ export const UNIT_TYPES: Record<string, UnitData> = {
     },
 
     'hog_rider': {
-        name: '호그 라이더',
+        name: '호그라이더',
         description: '건물만 노리고 돌진하며 강을 점프해 넘어가는 빠른 근접 공성 유닛.',
         spriteKey: 'hog_rider',
         cost: 4,

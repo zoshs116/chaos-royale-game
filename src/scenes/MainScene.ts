@@ -35,8 +35,10 @@ import type { RemoteBattleSnapshot } from '../multiplayer/BattleSocketClient';
 import type { BattleLaunchContext } from '../app/types';
 import { getBattleAccessToken } from '../app/authRepository';
 import RemoteProjectileVisual from '../entities/RemoteProjectileVisual';
-import Unit from '../entities/Unit';
+import Unit, { UnitState } from '../entities/Unit';
 import ActiveSkillButton from '../ui/ActiveSkillButton';
+import BattleViewTransform from '../multiplayer/BattleViewTransform';
+import RemoteBattleTimeline from '../multiplayer/RemoteBattleTimeline';
 
 type BattleWinner = 'blue' | 'red' | 'draw';
 
@@ -112,6 +114,19 @@ interface DebugSnapshot {
             fromTick: number | null;
             toTick: number | null;
             bufferSize: number;
+        };
+        network: {
+            timelineEnabled: boolean;
+            renderDelayMs: number;
+            bufferedSnapshots: number;
+            droppedSnapshots: number;
+            latestTick: number;
+            rttMs: number;
+            jitterMs: number;
+            snapshotAgeMs: number;
+            snapshotBytes: number;
+            parseMs: number;
+            staleSnapshots: number;
         };
         reconciliation: {
             mode: 'none' | 'snap' | 'smooth';
@@ -191,6 +206,7 @@ export default class MainScene extends Phaser.Scene {
     private forfeitDialog: Phaser.GameObjects.Container | null = null;
     private lastElixir: number = -1;
     private pendingHandIndices: Set<number> = new Set();
+    private suspendedHandIndices: Set<number> = new Set();
 
     private readonly simulationTickRate: number = CONSTANTS.GAMEPLAY.SIM_TICK_RATE;
     private readonly simulationDeltaMs: number = 1000 / CONSTANTS.GAMEPLAY.SIM_TICK_RATE;
@@ -238,7 +254,11 @@ export default class MainScene extends Phaser.Scene {
     private remotePendingSpawnVisuals = new Map<number, Phaser.GameObjects.Container>();
     private remoteConnectionLabel: Phaser.GameObjects.Text | null = null;
     private remoteConnectionState: 'connecting' | 'connected' | 'reconnecting' | 'closed' = 'closed';
-    private lastRemoteSnapshotTick: number | null = null;
+    private remoteViewTransform: BattleViewTransform | null = null;
+    private remoteBattleContext: BattleLaunchContext | null = null;
+    private readonly remoteTimeline = new RemoteBattleTimeline({ renderDelayMs: 120, maxSnapshots: 90 });
+    private readonly remoteTimelineEnabled = import.meta.env.VITE_REMOTE_TIMELINE_ENABLED !== 'false';
+    private remoteSceneInitialized = false;
 
     constructor() {
         super({ key: 'main-scene' });
@@ -269,6 +289,11 @@ export default class MainScene extends Phaser.Scene {
     }
 
     create() {
+        // A stopped Phaser scene is reused on the next battle. Remove listeners
+        // owned by the previous battle before constructing new systems.
+        this.battleManager?.destroy();
+        this.entityManager?.destroy();
+
         const profileErrors = validateDuckxelBattleProfiles();
         if (profileErrors.length > 0) {
             throw new Error(`Invalid Duck.xel battle profiles:\n${profileErrors.join('\n')}`);
@@ -329,10 +354,16 @@ export default class MainScene extends Phaser.Scene {
         const onExternalForfeit = () => this.requestForfeit();
         window.addEventListener('chaos:battle-forfeit', onExternalForfeit);
         this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+            this.battleManager?.destroy();
+            this.entityManager?.destroy();
             this.battleSocket?.close();
             this.battleSocket = null;
             this.remoteAuthoritative = false;
             this.friendlyRemoteMode = false;
+            this.remoteBattleContext = null;
+            this.remoteViewTransform = null;
+            this.remoteTimeline.reset();
+            this.remoteSceneInitialized = false;
             this.clearRemoteProjectileVisuals();
             this.clearRemoteSkillZoneVisuals();
             this.clearRemotePendingSpawnVisuals();
@@ -623,6 +654,7 @@ export default class MainScene extends Phaser.Scene {
         this.deck = [];
         this.deckIndex = 0;
         this.pendingHandIndices.clear();
+        this.suspendedHandIndices.clear();
         this.resetSimulationState();
     }
 
@@ -682,7 +714,9 @@ export default class MainScene extends Phaser.Scene {
         this.nextCardPreviews.forEach(c => c.destroy());
         this.nextCardPreviews = [];
 
-        const nextKey = this.remoteNextUnitKey ?? this.deck[this.deckIndex % this.deck.length];
+        const nextKey = this.remoteAuthoritative
+            ? this.remoteNextUnitKey
+            : this.peekNextAvailableCardFromDeck();
 
         const previewX = 30;
         const previewY = CONSTANTS.SCREEN_HEIGHT - 66;
@@ -690,8 +724,10 @@ export default class MainScene extends Phaser.Scene {
         const slot = this.createNextSlot(previewX, previewY);
         this.nextCardPreviews.push(slot);
 
-        const preview = Card.createMiniCard(this, previewX, previewY, nextKey);
-        preview.setScale(0.78);
+        const preview = nextKey
+            ? Card.createMiniCard(this, previewX, previewY, nextKey)
+            : this.add.container(previewX, previewY).setVisible(false);
+        if (nextKey) preview.setScale(0.78);
         this.nextCardPreviews.push(preview);
 
         const labelBg = this.add.graphics();
@@ -718,15 +754,19 @@ export default class MainScene extends Phaser.Scene {
     private updateNextCardPreviews() {
         if (this.nextCardPreviews.length === 0) return;
 
-        const nextKey = this.remoteNextUnitKey ?? this.deck[this.deckIndex % this.deck.length];
+        const nextKey = this.remoteAuthoritative
+            ? this.remoteNextUnitKey
+            : this.peekNextAvailableCardFromDeck();
         const previewX = 30;
         const previewY = CONSTANTS.SCREEN_HEIGHT - 66;
 
         const oldPreview = this.nextCardPreviews[1];
         if (oldPreview) {
             oldPreview.destroy();
-            const newPreview = Card.createMiniCard(this, previewX, previewY, nextKey);
-            newPreview.setScale(0.78);
+            const newPreview = nextKey
+                ? Card.createMiniCard(this, previewX, previewY, nextKey)
+                : this.add.container(previewX, previewY).setVisible(false);
+            if (nextKey) newPreview.setScale(0.78);
             this.nextCardPreviews[1] = newPreview;
         }
     }
@@ -751,10 +791,37 @@ export default class MainScene extends Phaser.Scene {
         return slot;
     }
 
-    private getNextCardFromDeck(): string {
-        const key = this.deck[this.deckIndex % this.deck.length];
-        this.deckIndex++;
-        return key;
+    private getNextAvailableCardFromDeck(additionallyLockedUnitKey?: string): string | null {
+        const locked = this.getLockedActiveSkillUnitKeys();
+        if (additionallyLockedUnitKey && UNIT_TYPES[additionallyLockedUnitKey]?.activeSkill) {
+            locked.add(additionallyLockedUnitKey);
+        }
+        for (let attempt = 0; attempt < this.deck.length; attempt += 1) {
+            const key = this.deck[this.deckIndex % this.deck.length];
+            this.deckIndex += 1;
+            if (!locked.has(key)) return key;
+        }
+        return null;
+    }
+
+    private peekNextAvailableCardFromDeck(additionallyLockedUnitKey?: string): string | null {
+        const locked = this.getLockedActiveSkillUnitKeys();
+        if (additionallyLockedUnitKey && UNIT_TYPES[additionallyLockedUnitKey]?.activeSkill) {
+            locked.add(additionallyLockedUnitKey);
+        }
+        for (let attempt = 0; attempt < this.deck.length; attempt += 1) {
+            const key = this.deck[(this.deckIndex + attempt) % this.deck.length];
+            if (!locked.has(key)) return key;
+        }
+        return null;
+    }
+
+    private getLockedActiveSkillUnitKeys(): Set<string> {
+        return new Set(
+            this.entityManager.getActiveSkillUnits('blue')
+                .filter(unit => unit.active && unit.state !== UnitState.DIE)
+                .map(unit => unit.unitKey),
+        );
     }
 
     private resetSimulationState() {
@@ -875,6 +942,8 @@ export default class MainScene extends Phaser.Scene {
     }
 
     private cycleHandCard(card: Card) {
+        const playedUnitKey = card.unitKey;
+        const handIndex = this.hand.indexOf(card);
         this.tweens.add({
             targets: card,
             y: card.originalY + 20,
@@ -884,8 +953,16 @@ export default class MainScene extends Phaser.Scene {
             duration: 120,
             ease: 'Sine.easeIn',
             onComplete: () => {
-                const nextKey = this.getNextCardFromDeck();
+                const nextKey = this.getNextAvailableCardFromDeck(playedUnitKey);
+                if (!nextKey) {
+                    if (handIndex >= 0) this.suspendedHandIndices.add(handIndex);
+                    card.setUnavailable(true);
+                    this.updateNextCardPreviews();
+                    return;
+                }
                 card.setUnitKey(nextKey);
+                card.setUnavailable(false);
+                if (handIndex >= 0) this.suspendedHandIndices.delete(handIndex);
                 this.updateNextCardPreviews();
 
                 card.x = card.originalX;
@@ -905,6 +982,26 @@ export default class MainScene extends Phaser.Scene {
                 });
             }
         });
+    }
+
+    private refillSuspendedHandSlots() {
+        if (this.remoteAuthoritative || this.suspendedHandIndices.size === 0) return;
+
+        for (const handIndex of [...this.suspendedHandIndices]) {
+            const card = this.hand[handIndex];
+            const nextKey = this.getNextAvailableCardFromDeck();
+            if (!card || !nextKey) continue;
+
+            card.setUnitKey(nextKey);
+            card.setUnavailable(false);
+            card.setPosition(card.originalX, card.originalY);
+            card.setScale(0.78);
+            card.setAlpha(1);
+            card.setDepth(CONSTANTS.DEPTH.CARD);
+            this.suspendedHandIndices.delete(handIndex);
+            this.playCardDrawFlash(card.originalX, card.originalY);
+        }
+        this.updateNextCardPreviews();
     }
 
     private playCardDrawFlash(x: number, y: number) {
@@ -1137,6 +1234,10 @@ export default class MainScene extends Phaser.Scene {
         const url = import.meta.env.VITE_BATTLE_WS_URL as string | undefined;
         if (context?.mode !== 'friendly' || !context.roomId || !context.playerId) return;
         this.friendlyRemoteMode = true;
+        this.remoteBattleContext = context;
+        this.remoteViewTransform = new BattleViewTransform(context.localTeam);
+        this.remoteTimeline.reset();
+        this.remoteSceneInitialized = false;
         if (!url) {
             this.effectManager.playUiText(CONSTANTS.SCREEN_WIDTH / 2, 120, 'MULTIPLAYER SERVER OFFLINE', '#ffb4c4');
             return;
@@ -1150,7 +1251,11 @@ export default class MainScene extends Phaser.Scene {
             tokenProvider: getBattleAccessToken,
             onSnapshot: (snapshot, state) => {
                 this.remoteAuthoritative = snapshot.state !== 'waiting';
-                this.applyRemoteBattleSnapshot(snapshot, context);
+                if (this.remoteTimelineEnabled) this.remoteTimeline.ingest(snapshot);
+                else {
+                    this.applyRemoteBattleSnapshot(snapshot, context, 66);
+                    if (snapshot.state === 'finished' && snapshot.winner) this.finishRemoteBattle(snapshot, context);
+                }
                 this.updateRemoteConnectionLabel(snapshot);
                 this.clientSync.ingestSnapshot(
                     {
@@ -1160,9 +1265,6 @@ export default class MainScene extends Phaser.Scene {
                     },
                     this.captureBaseState()
                 );
-                if (snapshot.state === 'finished' && snapshot.winner) {
-                    this.finishRemoteBattle(snapshot, context);
-                }
             },
             onCommandResult: (seq, accepted, reason) => this.resolveRemoteCommand(seq, accepted, reason),
             onConnectionState: (state) => {
@@ -1177,44 +1279,58 @@ export default class MainScene extends Phaser.Scene {
         this.battleSocket.connect();
     }
 
-    private applyRemoteBattleSnapshot(snapshot: RemoteBattleSnapshot, context: BattleLaunchContext) {
+    private applyRemoteBattleSnapshot(
+        snapshot: RemoteBattleSnapshot,
+        context: BattleLaunchContext,
+        renderDeltaMs: number,
+    ) {
         if (snapshot.state === 'waiting') return;
-        const mirror = context.localTeam === 'red';
+        const viewTransform = this.remoteViewTransform ?? new BattleViewTransform(context.localTeam);
         const localPlayer = snapshot.players.find((player) => player.playerId === context.playerId);
         if (localPlayer) this.syncRemoteHand(localPlayer.hand, localPlayer.nextUnitKey);
         const acknowledgedSeq = snapshot.ackByPlayer[context.playerId ?? ''] ?? 0;
         this.clearAcknowledgedSpawnVisuals(acknowledgedSeq);
-        const snapshotDelta = this.lastRemoteSnapshotTick === null || snapshot.tick <= this.lastRemoteSnapshotTick
-            ? 66
-            : Math.max(33, ((snapshot.tick - this.lastRemoteSnapshotTick) * 1000) / 30);
-        this.lastRemoteSnapshotTick = snapshot.tick;
+        const snapshotDelta = Math.max(1, renderDeltaMs);
         const remoteIds = new Set(snapshot.units.map((unit) => unit.id));
         const currentUnits = this.entityManager.getUnits().filter((unit) => !unit.isTower);
         const currentById = new Map(currentUnits.filter((unit) => unit.active).map((unit) => [unit.id, unit]));
         for (const unit of currentUnits) {
-            if (!remoteIds.has(unit.id)) unit.destroy();
+            if (!remoteIds.has(unit.id)) {
+                if (this.remoteSceneInitialized) this.effectManager.playDeath(unit.x, unit.y, unit.team, false);
+                unit.destroy();
+            }
         }
 
         for (const remote of snapshot.units) {
-            const visualTeam = remote.team === context.localTeam ? 'blue' : 'red';
-            const x = mirror ? CONSTANTS.SCREEN_WIDTH - remote.x : remote.x;
-            const y = mirror ? CONSTANTS.TOWERS.BLUE_KING.y + CONSTANTS.TOWERS.RED_KING.y - remote.y : remote.y;
+            const visualTeam = viewTransform.worldToVisualTeam(remote.team);
+            const point = viewTransform.worldToViewPoint(remote);
+            const x = point.x;
+            const y = point.y;
             let unit = currentById.get(remote.id) ?? null;
             if (!unit) {
                 unit = this.entityManager.spawnRemoteUnit(x, y, visualTeam, remote.unitKey, remote.id);
-                if (unit) currentById.set(remote.id, unit);
+                if (unit) {
+                    currentById.set(remote.id, unit);
+                    if (this.remoteSceneInitialized) this.effectManager.playSummon(x, y, visualTeam);
+                }
             }
             if (!unit) continue;
             unit.maxHp = remote.maxHp;
-            const directionX = mirror ? -remote.directionX : remote.directionX;
-            const directionY = mirror ? -remote.directionY : remote.directionY;
+            const direction = viewTransform.worldToViewVector({ x: remote.directionX, y: remote.directionY });
+            const directionX = direction.x;
+            const directionY = direction.y;
             unit.applyRemoteVisualState(x, y, remote.hp, remote.state, snapshotDelta, {
                 attackSerial: remote.attackSerial,
+                hitSerial: remote.hitSerial,
                 jumpSerial: remote.jumpSerial,
+                attackTick: remote.attackTick,
+                hitTick: remote.hitTick,
+                jumpTick: remote.jumpTick,
+                activeSkillCastTick: remote.activeSkillCastTick,
                 directionX,
                 directionY,
                 elevation: remote.elevation,
-            });
+            }, true);
             if (remote.activeSkillKey && remote.activeSkillPhase && unit.activeSkillDefinition?.key === remote.activeSkillKey) {
                 if (remote.activeSkillPhase === 'casting') {
                     this.entityManager.playRemoteActiveSkillCast(unit, remote.activeSkillCastSerial);
@@ -1234,26 +1350,23 @@ export default class MainScene extends Phaser.Scene {
             this.remoteProjectileVisuals.delete(id);
         }
         for (const projectile of snapshot.projectiles) {
-            const visualTeam = projectile.team === context.localTeam ? 'blue' : 'red';
+            const visualTeam = viewTransform.worldToVisualTeam(projectile.team);
             let visual = this.remoteProjectileVisuals.get(projectile.id);
             if (!visual) {
                 visual = new RemoteProjectileVisual(this, projectile.projectileKey, visualTeam);
                 this.remoteProjectileVisuals.set(projectile.id, visual);
             }
-            visual.applyState(
-                mirror ? CONSTANTS.SCREEN_WIDTH - projectile.x : projectile.x,
-                mirror ? CONSTANTS.TOWERS.BLUE_KING.y + CONSTANTS.TOWERS.RED_KING.y - projectile.y : projectile.y,
-                mirror ? -projectile.directionX : projectile.directionX,
-                mirror ? -projectile.directionY : projectile.directionY,
-            );
+            const point = viewTransform.worldToViewPoint(projectile);
+            const direction = viewTransform.worldToViewVector({ x: projectile.directionX, y: projectile.directionY });
+            visual.applyState(point.x, point.y, direction.x, direction.y, true);
         }
-        this.syncRemoteSkillZoneVisuals(snapshot, context, mirror);
+        this.syncRemoteSkillZoneVisuals(snapshot, context, viewTransform);
 
         this.applyingRemoteSnapshot = true;
         try {
             for (const remote of snapshot.towers) {
-                const visualTeam = remote.team === context.localTeam ? 'blue' : 'red';
-                const remoteX = mirror ? CONSTANTS.SCREEN_WIDTH - remote.x : remote.x;
+                const visualTeam = viewTransform.worldToVisualTeam(remote.team);
+                const remoteX = viewTransform.worldToViewPoint(remote).x;
                 const candidates = this.entityManager.getTowers().filter((tower) => tower.team === visualTeam && tower.isKingTower === (remote.type === 'king'));
                 const tower = candidates.sort((a, b) => Math.abs(a.x - remoteX) - Math.abs(b.x - remoteX))[0];
                 if (!tower) continue;
@@ -1268,6 +1381,7 @@ export default class MainScene extends Phaser.Scene {
         const opponentCrowns = context.localTeam === 'blue' ? snapshot.redCrowns : snapshot.blueCrowns;
         this.battleManager.applyRemoteState(snapshot.remainingMs, localCrowns, opponentCrowns);
         this.elixirManager.setElixirForDebug(context.localTeam === 'blue' ? snapshot.blueElixir : snapshot.redElixir);
+        this.remoteSceneInitialized = true;
     }
 
     private createRemotePendingSpawnVisual(seq: number, x: number, y: number, unitKey: string) {
@@ -1361,7 +1475,7 @@ export default class MainScene extends Phaser.Scene {
     private syncRemoteSkillZoneVisuals(
         snapshot: RemoteBattleSnapshot,
         context: BattleLaunchContext,
-        mirror: boolean,
+        viewTransform: BattleViewTransform,
     ) {
         const activeIds = new Set(snapshot.skillZones.map((zone) => zone.id));
         for (const [id, visual] of this.remoteSkillZoneVisuals) {
@@ -1377,15 +1491,13 @@ export default class MainScene extends Phaser.Scene {
                     ? 'vfx_web_acrobat_zone_2'
                     : 'vfx_web_acrobat_zone_0';
                 visual = this.add.image(0, 0, texture)
-                    .setDepth(CONSTANTS.DEPTH.UNIT_SHADOW + 1)
+                    .setDepth(CONSTANTS.DEPTH.HUD - 8)
                     .setAlpha(0.9)
                     .setDisplaySize(zone.radius * 2.15, zone.radius * 2.15);
                 this.remoteSkillZoneVisuals.set(zone.id, visual);
             }
-            visual.setPosition(
-                mirror ? CONSTANTS.SCREEN_WIDTH - zone.x : zone.x,
-                mirror ? CONSTANTS.TOWERS.BLUE_KING.y + CONSTANTS.TOWERS.RED_KING.y - zone.y : zone.y,
-            );
+            const point = viewTransform.worldToViewPoint(zone);
+            visual.setPosition(point.x, point.y);
             visual.setFlipX(zone.team !== context.localTeam);
             visual.setAlpha(Phaser.Math.Clamp(0.45 + zone.remainingMs / 10_000, 0.45, 0.92));
         }
@@ -1417,10 +1529,19 @@ export default class MainScene extends Phaser.Scene {
         this.refreshHandAffordability();
     }
 
-    private syncRemoteHand(hand: string[], nextUnitKey: string) {
+    private syncRemoteHand(hand: Array<string | null>, nextUnitKey: string | null) {
         if (hand.length !== this.hand.length) return;
         hand.forEach((unitKey, index) => {
-            if (this.hand[index]?.unitKey !== unitKey) this.hand[index]?.setUnitKey(unitKey);
+            const card = this.hand[index];
+            if (!card) return;
+            if (!unitKey) {
+                card.setUnavailable(true);
+                this.suspendedHandIndices.add(index);
+                return;
+            }
+            if (card.unitKey !== unitKey) card.setUnitKey(unitKey);
+            card.setUnavailable(false);
+            this.suspendedHandIndices.delete(index);
         });
         if (this.remoteNextUnitKey !== nextUnitKey) {
             this.remoteNextUnitKey = nextUnitKey;
@@ -1467,6 +1588,18 @@ export default class MainScene extends Phaser.Scene {
     update(time: number, delta: number) {
         this.mapRenderer.update(time, delta);
         if (this.friendlyRemoteMode) {
+            const context = this.remoteBattleContext;
+            const estimatedServerTimeMs = this.battleSocket?.getEstimatedServerTimeMs() ?? Date.now();
+            const renderSample = this.remoteTimelineEnabled
+                ? this.remoteTimeline.sample(estimatedServerTimeMs)
+                : null;
+            if (context && renderSample) {
+                const renderedSnapshot = this.remoteTimeline.materialize(renderSample);
+                this.applyRemoteBattleSnapshot(renderedSnapshot, context, delta);
+                if (renderedSnapshot.state === 'finished' && renderedSnapshot.winner) {
+                    this.finishRemoteBattle(renderedSnapshot, context);
+                }
+            }
             for (const unit of this.entityManager.getUnits()) {
                 if (!unit.isTower && unit.active) unit.updateRemoteVisual(delta);
             }
@@ -1500,6 +1633,7 @@ export default class MainScene extends Phaser.Scene {
         const renderTick = this.simulationTick + (this.simulationAccumulatorMs / this.simulationDeltaMs);
         this.interpolationSample = this.clientSync.sample(renderTick);
 
+        this.refillSuspendedHandSlots();
         this.refreshHandAffordability();
         this.hud.update();
     }
@@ -1686,6 +1820,8 @@ export default class MainScene extends Phaser.Scene {
      * Debug helper: structured state dump for automated checks.
      */
     public debugGetSnapshot(): DebugSnapshot {
+        const timelineDiagnostics = this.remoteTimeline.getDiagnostics();
+        const networkDiagnostics = this.battleSocket?.getNetworkDiagnostics();
         const units = this.entityManager.getUnits()
             .filter(unit => unit.active && !unit.isTower)
             .map((unit): DebugUnitState => {
@@ -1772,6 +1908,19 @@ export default class MainScene extends Phaser.Scene {
                     fromTick: this.interpolationSample.fromTick,
                     toTick: this.interpolationSample.toTick,
                     bufferSize: this.clientSync.getSnapshotBufferSize(),
+                },
+                network: {
+                    timelineEnabled: this.remoteTimelineEnabled,
+                    renderDelayMs: timelineDiagnostics.renderDelayMs,
+                    bufferedSnapshots: timelineDiagnostics.bufferedSnapshots,
+                    droppedSnapshots: timelineDiagnostics.droppedSnapshots,
+                    latestTick: timelineDiagnostics.latestTick,
+                    rttMs: Math.round((networkDiagnostics?.rttMs ?? 0) * 10) / 10,
+                    jitterMs: Math.round((networkDiagnostics?.jitterMs ?? 0) * 10) / 10,
+                    snapshotAgeMs: Math.round((networkDiagnostics?.snapshotAgeMs ?? 0) * 10) / 10,
+                    snapshotBytes: networkDiagnostics?.snapshotBytes ?? 0,
+                    parseMs: Math.round((networkDiagnostics?.parseMs ?? 0) * 100) / 100,
+                    staleSnapshots: networkDiagnostics?.staleSnapshots ?? 0,
                 },
                 reconciliation: {
                     mode: this.clientSync.getCorrectionMode(),

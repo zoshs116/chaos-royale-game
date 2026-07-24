@@ -54,6 +54,9 @@ export interface DuckxelBattleProfile {
         crossLaneCloseRange: number;
         bridgeCrossLaneAllowed: boolean;
         bridgeEngagementRange: number;
+        centerPullHalfWidth: number;
+        rearAggroRange: number;
+        backtrackTolerance: number;
         lockDuration: number;
         scanInterval: number;
         switchAdvantage: number;
@@ -97,7 +100,7 @@ const triangle3 = [
     { x: 15, y: 11 },
 ];
 
-const skeletonSwarm13 = [
+const skeletonSwarm18 = [
     { x: 0, y: 0 },
     { x: -10, y: -9 },
     { x: 10, y: -9 },
@@ -111,18 +114,26 @@ const skeletonSwarm13 = [
     { x: -18, y: -44 },
     { x: 0, y: -46 },
     { x: 18, y: -44 },
+    { x: -32, y: -58 },
+    { x: -16, y: -60 },
+    { x: 0, y: -61 },
+    { x: 16, y: -60 },
+    { x: 32, y: -58 },
 ];
 
 const baseAnyTargeting = {
     policy: 'any-nearest' as const,
     mask: { units: true, towers: true, ground: true, air: false },
     fallback: 'crown-tower' as const,
-    sightMin: 90,
-    sightMax: 285,
-    sameLanePenalty: 140,
-    crossLaneCloseRange: 64,
+    sightMin: 100,
+    sightMax: 110,
+    sameLanePenalty: 20,
+    crossLaneCloseRange: 44,
     bridgeCrossLaneAllowed: true,
-    bridgeEngagementRange: 92,
+    bridgeEngagementRange: 84,
+    centerPullHalfWidth: 54,
+    rearAggroRange: 44,
+    backtrackTolerance: 18,
     lockDuration: 430,
     scanInterval: 320,
     switchAdvantage: 18,
@@ -132,12 +143,15 @@ const buildingTargeting = {
     policy: 'building-only' as const,
     mask: { units: false, towers: true, ground: true, air: false },
     fallback: 'crown-tower' as const,
-    sightMin: 110,
-    sightMax: 390,
-    sameLanePenalty: 140,
-    crossLaneCloseRange: 52,
+    sightMin: 150,
+    sightMax: 190,
+    sameLanePenalty: 20,
+    crossLaneCloseRange: 40,
     bridgeCrossLaneAllowed: false,
     bridgeEngagementRange: 0,
+    centerPullHalfWidth: 0,
+    rearAggroRange: 0,
+    backtrackTolerance: 0,
     lockDuration: 520,
     scanInterval: 420,
     switchAdvantage: 28,
@@ -200,7 +214,7 @@ export const DUCKXEL_BATTLE_PROFILES: Record<DuckxelBattleUnitKey, DuckxelBattle
         hpBar: { width: 27, y: -21 },
         shadow: { width: 21, height: 8, y: 10, alpha: 0.28 },
         targeting: baseAnyTargeting,
-        attack: { frameDuration: 100, hitFrame: 2, rangePadding: 18 },
+        attack: { frameDuration: 100, hitFrame: 2, rangePadding: 18, splashRadius: 24 },
         timing: meleeTiming,
         tracking: meleeTracking,
         reaction: combatReaction,
@@ -216,8 +230,8 @@ export const DUCKXEL_BATTLE_PROFILES: Record<DuckxelBattleUnitKey, DuckxelBattle
         shadow: { width: 18, height: 7, y: 9, alpha: 0.26 },
         targeting: {
             ...baseAnyTargeting,
-            sightMax: 315,
-            crossLaneCloseRange: 70,
+            sightMax: 120,
+            crossLaneCloseRange: 48,
         },
         attack: { frameDuration: 100, hitFrame: 2, rangePadding: 17 },
         timing: { deployDelay: CONSTANTS.GAMEPLAY.SPAWN_DELAY, acquisitionDelay: 80, firstHitDelay: 170 },
@@ -235,9 +249,9 @@ export const DUCKXEL_BATTLE_PROFILES: Record<DuckxelBattleUnitKey, DuckxelBattle
         shadow: { width: 13, height: 5, y: 8, alpha: 0.24 },
         targeting: {
             ...baseAnyTargeting,
-            sightMax: 310,
-            sameLanePenalty: 125,
-            crossLaneCloseRange: 74,
+            sightMax: 110,
+            sameLanePenalty: 16,
+            crossLaneCloseRange: 48,
         },
         attack: { frameDuration: 75, hitFrame: 1, rangePadding: 10, projectileForward: 13, projectileLift: 10, projectileSpeed: 390 },
         timing: { deployDelay: CONSTANTS.GAMEPLAY.SPAWN_DELAY, acquisitionDelay: 90, firstHitDelay: 260 },
@@ -256,14 +270,15 @@ export const DUCKXEL_BATTLE_PROFILES: Record<DuckxelBattleUnitKey, DuckxelBattle
         shadow: { width: 9, height: 4, y: 6, alpha: 0.2 },
         targeting: {
             ...baseAnyTargeting,
-            sightMax: 225,
-            crossLaneCloseRange: 48,
+            sightMin: 90,
+            sightMax: 100,
+            crossLaneCloseRange: 40,
         },
         attack: { frameDuration: 78, hitFrame: 1, rangePadding: 14 },
         timing: { deployDelay: CONSTANTS.GAMEPLAY.SPAWN_DELAY, acquisitionDelay: 70, firstHitDelay: 120 },
         tracking: { attackExitPadding: 7, leashDistance: 180, returnToLaneDelay: 480 },
         reaction: combatReaction,
-        spawn: { count: 13, formation: skeletonSwarm13 },
+        spawn: { count: 18, formation: skeletonSwarm18 },
     },
     royal_giant: {
         unitKey: 'royal_giant',
